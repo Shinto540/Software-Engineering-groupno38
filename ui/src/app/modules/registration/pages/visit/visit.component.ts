@@ -31,6 +31,16 @@ import {
 import { SelectRoomComponent } from "../../components/select-room/select-room.component";
 import { VisitClaimComponent } from "../../components/visit-claim/visit-claim.component";
 import { RegistrationService } from "../../services/registration.services";
+import { VisitsService } from "src/app/shared/resources/visits/services";
+import { map } from "rxjs/operators";
+import { getCurrentUserPrivileges } from "src/app/store/selectors/current-user.selectors";
+import { toISOStringFormat } from "src/app/shared/helpers/format-date.helper";
+import { SharedConfirmationComponent } from "src/app/shared/components/shared-confirmation/shared-confirmation.component";
+import { ProgramsService } from "src/app/shared/resources/programs/services/programs.service";
+import { SystemSettingsService } from "src/app/core/services/system-settings.service";
+import { ProgramEnrollment } from "src/app/modules/vertical-programs/models/programEnrollment.model";
+import { ProgramGet, ProgramGetFull } from "src/app/shared/resources/openmrs";
+import { ConceptsService } from "src/app/shared/resources/concepts/services/concepts.service";
 
 @Component({
   selector: "app-visit",
@@ -74,10 +84,12 @@ export class VisitComponent implements OnInit {
   paymentsCategories: Array<any>;
   currentPaymentCategory: any;
   missingBillingConceptError: string;
+  allProgarm: Observable<any>;
 
   @Input() visitTypes: any;
   @Input() servicesConfigs: any;
   @Input() allowOnlineVerification: boolean;
+  @Input() patientDetails: any;
   visitDetails: any = {};
   referralHospital: any;
 
@@ -99,252 +111,66 @@ export class VisitComponent implements OnInit {
   isReferralVisit: boolean = false;
   currentServiceConfigsSelected: any;
   authorizationNumberAvailable: boolean = true;
-
-  searchRoom(event: Event) {
-    event.stopPropagation();
-    this.searchTerm = (event.target as HTMLInputElement).value;
-  }
-
-  toggleAuthorizationNumberInputActive(event) {
-    if (event.checked) {
-      this.authorizationNumberAvailable = false;
-      this.visitDetails["InsuranceAuthNo"] = "NOT_AUTHORIZED";
-    } else {
-      this.authorizationNumberAvailable = true;
-      this.visitDetails["InsuranceAuthNo"] = null;
-    }
-  }
-
-  onSelectRoom(event: Event, room: any) {
-    event.stopPropagation();
-    if (room?.billingConcept) {
-      this.visitDetails["visitRoom"] = room?.uuid;
-      this.missingBillingConceptError = null;
-      this.visitDetails["visitService"] = this.visitDetails?.service?.uuid;
-      this.visitDetails["Room"] = room;
-      this.visitDetails["RoomName"] = room?.name;
-      this.currentRoom = room?.id;
-      // Take the billable concept to be a service attribute value
-      this.visitDetails["service"] = {
-        ...this.visitDetails?.service,
-        value: room?.billingConcept,
-        uuid: room?.billingConcept,
-      };
-    } else {
-      this.missingBillingConceptError = "No price item set";
-      this.visitDetails["Cash"] = null;
-      this.visitDetails["InsuranceID"] = null;
-      this.visitDetails["Insurance"] = null;
-      this.visitDetails["InsuranceAuthNo"] = null;
-    }
-  }
-
-  onCancel(event: Event) {
-    event.stopPropagation();
-    this.cancelVisitChanges.emit(this.visitDetails);
-  }
-
-  setVisitTypeOption(option, isEmergency?) {
-    // console.log('the option', option);
-    // console.log('the hierarchy', this.visitsHierarchy2);
-    const matchedServiceConfigs = (this.servicesConfigs.filter(
-      (config) => config.uuid === option?.uuid
-    ) || [])[0];
-    this.currentServiceConfigsSelected = matchedServiceConfigs;
-    const serviceConcept = matchedServiceConfigs
-      ? matchedServiceConfigs?.serviceConcept
-      : null;
-
-    if (serviceConcept) {
-      this.store.dispatch(
-        loadConceptByUuid({
-          uuid: serviceConcept?.uuid,
-          fields:
-            "custom:(uuid,name,display,setMembers:(uuid,name,names,display))",
-        })
-      );
-      this.servicesConcepts$ = this.store.select(getConceptById, {
-        id: serviceConcept?.uuid,
-      });
-    }
-    //  TOD: Find a better way to handle variable visitsHierarchy2
-    this.currentServicesHierarchy = _.filter(
-      this.visitsHierarchy2,
-      (visitHierarchy) => {
-        return (
-          visitHierarchy?.display == option?.display ||
-          visitHierarchy?.name == option?.name ||
-          visitHierarchy?.display == option?.name
-        );
-      }
-    );
-
-    this.visitDetails = {
-      ...this.visitDetails,
-      visitType: { uuid: option.uuid, display: option.display },
-    };
-    this.currentVisitType = option;
-  }
-
-  get servicesAsPerVisitType() {
-    return (this.currentServicesHierarchy = _.filter(
-      this.visitsHierarchy2,
-      (visitHierarchy) =>
-        this.isEmergencyVisit && !this.currentVisitType
-          ? visitHierarchy?.display.toLowerCase().indexOf("ipd") > -1
-          : !this.isEmergencyVisit && this.currentVisitType
-          ? visitHierarchy?.display == this.currentVisitType?.display ||
-            visitHierarchy?.name == this.currentVisitType?.name ||
-            visitHierarchy?.display == this.currentVisitType?.name
-          : []
-    ));
-  }
-
-  getReferralNumber(refNumber) {
-    this.visitDetails["referralNo"] = refNumber;
-  }
-
-  setVisitMode(value: boolean, attribute?: string, type?) {
-    if (type === "emergency") {
-      this.isEmergencyVisit = value;
-    }
-
-    if (type === "referral") {
-      this.isReferralVisit = value;
-    }
-    this.visitDetails["insuranceVisitType"] =
-      type === "referral" ? "1" : type === "emergency" ? "2" : "1";
-    this.visitDetails["emergency"] = this.isEmergencyVisit
-      ? {
-          value: this.isEmergencyVisit,
-          attributeUuid: this.visitDetails?.emergency?.attributeUuid
-            ? this.visitDetails?.emergency?.attributeUuid
-            : attribute,
-        }
-      : null;
-
-    if (this.isEmergencyVisit && !attribute) {
-      this.servicesConcepts$ = of(null);
-    }
-
-    if (this.isEmergencyVisit) {
-      this.currentServicesHierarchy = _.filter(
-        this.visitsHierarchy2,
-        (visitHierarchy) =>
-          visitHierarchy?.display.toLowerCase().indexOf("ipd") > -1
-      );
-    } else {
-      this.currentServicesHierarchy = _.filter(
-        this.visitsHierarchy2,
-        (visitHierarchy) =>
-          visitHierarchy?.display == this.currentVisitType?.display ||
-          visitHierarchy?.name == this.currentVisitType?.name ||
-          visitHierarchy?.display == this.currentVisitType?.name
-      );
-    }
-  }
-
-  setInsuranceTypeOption(value) {
-    this.store.dispatch(
-      loadConceptByUuid({
-        uuid: value?.uuid,
-        fields:
-          "custom:(uuid,name,display,setMembers:(uuid,name,names,display))",
-      })
-    );
-    this.visitDetails["Insurance"] = value;
-    this.insuranceSchemes$ = this.store.select(getConceptById, {
-      id: value?.uuid,
-    });
-  }
-
-  setPaymentOptions(key, value) {
-    if (key == "Payment" && value?.display == "Insurance") {
-      this.visitDetails["Cash"] = null;
-
-      this.visitDetails[key] = this.visitDetails[key]?.attributeUuid
-        ? {
-            ...value,
-            attributeUuid: this.visitDetails[key]?.attributeUuid,
-          }
-        : value;
-
-      this.currentPaymentCategory = this.visitDetails[key];
-    } else if (key == "Payment" && value?.display == "Cash") {
-      this.visitDetails["InsuranceID"] = null;
-      this.visitDetails["Insurance"] = null;
-      this.visitDetails["InsuranceAuthNo"] = null;
-      this.visitDetails["voteNumber"] = null;
-
-      this.visitDetails[key] = this.visitDetails[key]?.attributeUuid
-        ? {
-            ...value,
-            attributeUuid: this.visitDetails[key]?.attributeUuid,
-          }
-        : value;
-
-      this.currentPaymentCategory = this.visitDetails[key];
-    } else if (key == "Cash") {
-      this.visitDetails[key] = value;
-
-      this.visitDetails["Insurance"] = null;
-      this.visitDetails["InsuranceID"] = null;
-      this.visitDetails["InsuranceAuthNo"] = null;
-    } else if (key == "Insurance") {
-      this.visitDetails[key] = value;
-
-      this.visitDetails["Cash"] = null;
-    }
-
-    //console.log('the visit details :: ', this.visitDetails);
-  }
-
-  setInsuranceScheme(scheme) {
-    this.visitDetails["insuranceScheme"] = scheme;
-    this.visitDetails["PaymentScheme"] = scheme?.display;
-  }
-
-  getConceptValue(uuid) {
-    let paymentCategory = _.filter(this.paymentsCategories, (category) => {
-      return category?.uuid == uuid;
-    });
-
-    //console.log("the cat :: ", paymentCategory)
-
-    return paymentCategory?.length > 0 ? paymentCategory[0]?.display : "";
-  }
-
-  setService(service) {
-    if (this.visitDetails["service"]?.attributeUuid) {
-      this.visitDetails["service"] = {
-        attributeUuid: this.visitDetails["service"]?.attributeUuid,
-        ...service,
-      };
-      this.currentVisitService = {
-        attributeUuid: this.visitDetails["service"]?.attributeUuid,
-        ...service,
-      };
-    } else {
-      this.visitDetails["service"] = service;
-      this.currentVisitService = service;
-    }
-  }
+  patientVisist$: Observable<any>;
+  userPrivileges$: Observable<any>;
 
   showVisitStartForn: boolean = false;
   patientt: patientObj;
   formatedServiceDetails: any = {};
   currentLocation: any;
   paymentsCategories$: Observable<any>;
+  verticalPrograms$: Observable<any[]>;
+  isVerticalProgram: boolean = false;
+  verticalProgramUuid$: Observable<any>;
+  selectedService$: Observable<any>;
+  selectedProgram: ProgramGetFull;
+  visible: boolean = false;
+  enrolledPrograms: ProgramGetFull[];
 
   constructor(
     private store: Store<AppState>,
     public dialog: MatDialog,
     private _snackBar: MatSnackBar,
     private registrationService: RegistrationService,
-    private router: Router
+    private router: Router,
+    private visitService: VisitsService,
+    private programsService: ProgramsService,
+    private systemSettingsService: SystemSettingsService,
+    private conceptsService: ConceptsService
   ) {}
 
+  dismissAlert() {
+    this.visible = false;
+  }
+
   ngOnInit(): void {
+    this.patientVisist$ = this.visitService
+      .getLastPatientVisit(this.patientDetails?.uuid)
+      .pipe(
+        map((patientvisit) => {
+          return (patientvisit[0]?.visit?.attributesToDisplay?.filter(
+            (values) => {
+              return (
+                values.attributeType.uuid ===
+                "INSURANCEIDIIIIIIIIIIIIIIIIIIIIATYPE"
+              );
+            }
+          ) || [])[0]?.value;
+        })
+      );
+    this.patientVisist$.subscribe((data: any) => {
+      this.visitDetails["InsuranceID"] =
+        (this.patientDetails?.person?.attributes?.filter(
+          (attribute) => attribute?.attributeType?.display === "ID"
+        ) || [])[0]?.value.length > 0
+          ? (this.patientDetails?.person?.attributes?.filter(
+              (attribute) => attribute?.attributeType?.display === "ID"
+            ) || [])[0]?.value
+          : data?.length > 0
+          ? data
+          : null;
+    });
+    this.verticalPrograms$ = this.programsService.getAllPrograms(["v=full"]);
     this.currentPatient$ = this.store.pipe(select(getCurrentPatient));
     this.activeVisit$ = this.store.pipe(select(getActiveVisit));
     this.loadingVisit$ = this.store.pipe(select(getVisitLoadingState));
@@ -352,6 +178,7 @@ export class VisitComponent implements OnInit {
     this.visitError$ = this.store.pipe(select(getVisitError));
     this.activeVisitUuid$ = this.store.pipe(select(getActiveVisitUuid));
     this.locations$ = this.store.pipe(select(getLocations));
+    this.userPrivileges$ = this.store.select(getCurrentUserPrivileges);
     this.referralLocations$ = this.store.select(getLocationsByTagName, {
       tagName: "Refer-from Location",
     });
@@ -360,6 +187,10 @@ export class VisitComponent implements OnInit {
       tagName: "Admission Location",
     });
 
+    this.verticalProgramUuid$ =
+      this.systemSettingsService.getSystemSettingsByKey(
+        "iCare.visits.types.verticalProgam"
+      );
     this.registrationService
       .getServicesConceptHierarchy()
       .subscribe((response) => {
@@ -510,6 +341,345 @@ export class VisitComponent implements OnInit {
 
     this.store.dispatch(clearActiveVisit());
     this.startVisitEvent.emit();
+    this.dialog.closeAll();
+  }
+
+  onGetSelectedProgram(selectedProgram: ProgramGetFull): void {
+    if (selectedProgram) {
+      // this.enrolledPrograms.
+      this.visible =
+        this.enrolledPrograms.filter(
+          (program) => program?.uuid === selectedProgram?.uuid
+        ).length > 0;
+      this.selectedProgram = selectedProgram;
+    }
+    // console.log(selectedProgram);
+  }
+
+  enrollToProgam(payload: ProgramEnrollment) {
+    payload = {
+      patient: this.patientDetails?.id,
+      program: this.selectedProgram?.uuid,
+      dateEnrolled: new Date(),
+      dateCompleted: null,
+      location: this.currentRoom,
+      outcome: null,
+    };
+
+    if (this.enrolledPrograms.length > 0) {
+      this.visible = true;
+    } else {
+      this.programsService
+        .newEnrollment(this.patientDetails?.id, payload)
+        .subscribe((response) => {
+          return response;
+        });
+      this.openSnackBar("Patient enrolled Sucessfully", null);
+      this.dialog.closeAll();
+    }
+  }
+
+  searchRoom(event: Event) {
+    event.stopPropagation();
+    this.searchTerm = (event.target as HTMLInputElement).value;
+  }
+
+  getEnrollmentsByPatientUuid(patientUuid: string): Observable<any[]> {
+    return this.programsService.getEnrollmentsByPatient(patientUuid);
+  }
+
+  toggleAuthorizationNumberInputActive(event) {
+    if (event.checked) {
+      this.authorizationNumberAvailable = false;
+      this.visitDetails["InsuranceAuthNo"] = "NOT_AUTHORIZED";
+    } else {
+      this.authorizationNumberAvailable = true;
+      this.visitDetails["InsuranceAuthNo"] = null;
+    }
+  }
+
+  onSelectRoom(event: Event, room: any) {
+    event.stopPropagation();
+    if (room?.billingConcept) {
+      this.visitDetails["visitRoom"] = room?.uuid;
+      this.missingBillingConceptError = null;
+      this.visitDetails["visitService"] = this.visitDetails?.service?.uuid;
+      this.visitDetails["Room"] = room;
+      this.visitDetails["RoomName"] = room?.name;
+      this.currentRoom = room?.id;
+      // Take the billable concept to be a service attribute value
+      this.visitDetails["service"] = {
+        ...this.visitDetails?.service,
+        value: room?.billingConcept,
+        uuid: room?.billingConcept,
+      };
+    } else {
+      this.missingBillingConceptError = "No price item set";
+      this.visitDetails["Cash"] = null;
+      this.visitDetails["InsuranceID"] = null;
+      this.visitDetails["Insurance"] = null;
+      this.visitDetails["InsuranceAuthNo"] = null;
+    }
+  }
+
+  onCancel(event: Event) {
+    event.stopPropagation();
+    this.cancelVisitChanges.emit(this.visitDetails);
+  }
+
+  setVisitTypeOption(option, verticalProgamUuid?, isEmergency?) {
+    this.isVerticalProgram = verticalProgamUuid === option?.uuid;
+    const matchedServiceConfigs = (this.servicesConfigs.filter(
+      (config) => config.uuid === option?.uuid
+    ) || [])[0];
+    this.currentServiceConfigsSelected = matchedServiceConfigs;
+    const serviceConcept = matchedServiceConfigs
+      ? matchedServiceConfigs?.serviceConcept
+      : null;
+
+    if (serviceConcept) {
+      this.store.dispatch(
+        loadConceptByUuid({
+          uuid: serviceConcept?.uuid,
+          fields:
+            "custom:(uuid,name,display,setMembers:(uuid,name,names,display))",
+        })
+      );
+      this.servicesConcepts$ = this.store.select(getConceptById, {
+        id: serviceConcept?.uuid,
+      });
+    }
+    //  TOD: Find a better way to handle variable visitsHierarchy2
+    this.currentServicesHierarchy = _.filter(
+      this.visitsHierarchy2,
+      (visitHierarchy) => {
+        return (
+          visitHierarchy?.display == option?.display ||
+          visitHierarchy?.name == option?.name ||
+          visitHierarchy?.display == option?.name
+        );
+      }
+    );
+
+    this.visitDetails = {
+      ...this.visitDetails,
+      visitType: { uuid: option.uuid, display: option.display },
+    };
+    this.currentVisitType = option;
+
+    this.getEnrollmentsByPatientUuid(this.patientDetails?.id).subscribe(
+      (response) => {
+        this.enrolledPrograms = response.map((program) => {
+          return program?.program;
+        });
+      }
+    );
+    console.log("patient id", this.patientDetails?.id);
+  }
+
+  get servicesAsPerVisitType() {
+    return (this.currentServicesHierarchy = _.filter(
+      this.visitsHierarchy2,
+      (visitHierarchy) =>
+        this.isEmergencyVisit && !this.currentVisitType
+          ? visitHierarchy?.display.toLowerCase().indexOf("ipd") > -1
+          : !this.isEmergencyVisit && this.currentVisitType
+          ? visitHierarchy?.display == this.currentVisitType?.display ||
+            visitHierarchy?.name == this.currentVisitType?.name ||
+            visitHierarchy?.display == this.currentVisitType?.name
+          : []
+    ));
+  }
+
+  getReferralNumber(refNumber) {
+    this.visitDetails["referralNo"] = refNumber;
+  }
+
+  setVisitMode(value: boolean, attribute?: string, type?) {
+    if (type === "emergency") {
+      this.isEmergencyVisit = value;
+    }
+
+    if (type === "referral") {
+      this.isReferralVisit = value;
+    }
+    this.visitDetails["insuranceVisitType"] =
+      type === "referral" ? "1" : type === "emergency" ? "2" : "1";
+    this.visitDetails["emergency"] = this.isEmergencyVisit
+      ? {
+          value: this.isEmergencyVisit,
+          attributeUuid: this.visitDetails?.emergency?.attributeUuid
+            ? this.visitDetails?.emergency?.attributeUuid
+            : attribute,
+        }
+      : null;
+
+    if (this.isEmergencyVisit && !attribute) {
+      this.servicesConcepts$ = of(null);
+    }
+
+    if (this.isEmergencyVisit) {
+      this.currentServicesHierarchy = _.filter(
+        this.visitsHierarchy2,
+        (visitHierarchy) =>
+          visitHierarchy?.display.toLowerCase().indexOf("ipd") > -1
+      );
+    } else {
+      this.currentServicesHierarchy = _.filter(
+        this.visitsHierarchy2,
+        (visitHierarchy) =>
+          visitHierarchy?.display == this.currentVisitType?.display ||
+          visitHierarchy?.name == this.currentVisitType?.name ||
+          visitHierarchy?.display == this.currentVisitType?.name
+      );
+    }
+  }
+
+  setInsuranceTypeOption(value) {
+    this.store.dispatch(
+      loadConceptByUuid({
+        uuid: value?.uuid,
+        fields:
+          "custom:(uuid,name,display,setMembers:(uuid,name,names,display))",
+      })
+    );
+    this.visitDetails["Insurance"] = value;
+    this.insuranceSchemes$ = this.store.select(getConceptById, {
+      id: value?.uuid,
+    });
+  }
+
+  setPaymentOptions(key, value) {
+    if (key == "Payment" && value?.display == "Insurance") {
+      this.visitDetails["Cash"] = null;
+
+      this.visitDetails[key] = this.visitDetails[key]?.attributeUuid
+        ? {
+            ...value,
+            attributeUuid: this.visitDetails[key]?.attributeUuid,
+          }
+        : value;
+
+      this.currentPaymentCategory = this.visitDetails[key];
+    } else if (key == "Payment" && value?.display == "Cash") {
+      this.visitDetails["InsuranceID"] = null;
+      this.visitDetails["Insurance"] = null;
+      this.visitDetails["InsuranceAuthNo"] = null;
+      this.visitDetails["voteNumber"] = null;
+
+      this.visitDetails[key] = this.visitDetails[key]?.attributeUuid
+        ? {
+            ...value,
+            attributeUuid: this.visitDetails[key]?.attributeUuid,
+          }
+        : value;
+
+      this.currentPaymentCategory = this.visitDetails[key];
+    } else if (key == "Cash") {
+      this.visitDetails[key] = value;
+
+      this.visitDetails["Insurance"] = null;
+      this.visitDetails["InsuranceID"] = null;
+      this.visitDetails["InsuranceAuthNo"] = null;
+    } else if (key == "Insurance") {
+      this.visitDetails[key] = value;
+
+      this.visitDetails["Cash"] = null;
+    }
+
+    //console.log('the visit details :: ', this.visitDetails);
+  }
+
+  setInsuranceScheme(scheme) {
+    this.visitDetails["insuranceScheme"] = scheme;
+    this.visitDetails["PaymentScheme"] = scheme?.display;
+  }
+
+  getConceptValue(uuid) {
+    let paymentCategory = _.filter(this.paymentsCategories, (category) => {
+      return category?.uuid == uuid;
+    });
+
+    //console.log("the cat :: ", paymentCategory)
+
+    return paymentCategory?.length > 0 ? paymentCategory[0]?.display : "";
+  }
+
+  setService(service) {
+    this.selectedProgram = null; // nullfy selectedprogram until you select one
+    this.visible = false;
+    if (this.visitDetails["service"]?.attributeUuid) {
+      this.visitDetails["service"] = {
+        attributeUuid: this.visitDetails["service"]?.attributeUuid,
+        ...service,
+      };
+      this.currentVisitService = {
+        attributeUuid: this.visitDetails["service"]?.attributeUuid,
+        ...service,
+      };
+    } else {
+      this.visitDetails["service"] = service;
+      this.currentVisitService = service;
+    }
+    // console.log("service ", service);
+    this.selectedService$ = of(null);
+    if (service?.uuid) {
+      this.selectedService$ = this.conceptsService.getConceptDetailsByUuid(
+        service?.uuid,
+        "custom:(uuid,name,display,setMembers:(uuid,name,names,display))"
+      );
+    }
+    // console.log("selectedService", service);
+  }
+
+  onCloseActiveVisit(e, activeVisit: any, key?: string) {
+    e.stopPropagation();
+    this.dialog
+      .open(SharedConfirmationComponent, {
+        width: "20%",
+        data: {
+          modalTitle:
+            key === "close" ? `Close This Visit` : "Delete this Visit",
+          modalMessage: `Are you sure you want to ${
+            key === "close" ? "Close" : "delete"
+          } this visit?`,
+          showRemarksInput: false,
+          confirmationButtonText: key === "close" ? "Yes" : "Delete",
+          remarksFieldLabel: "Reason",
+        },
+      })
+      .afterClosed()
+      .subscribe((results) => {
+        if (results?.confirmed) {
+          let visitObject: any = {
+            stopDatetime: toISOStringFormat(),
+          };
+
+          if (key === "void") {
+            visitObject = {
+              ...visitObject,
+              voided: true,
+              // voidReason: results?.remarks || "No reason provided"
+            };
+            this.visitService
+              .updateVisit(activeVisit?.uuid, visitObject)
+              .subscribe((response) => {
+                if (!response?.error) {
+                  this.onCancel(e);
+                }
+              });
+          }
+          if (key === "close") {
+            this.visitService
+              .updateVisit(activeVisit?.uuid, visitObject)
+              .subscribe((response) => {
+                if (!response?.error) {
+                  this.onCancel(e);
+                }
+              });
+          }
+        }
+      });
   }
 
   openSnackBar(message: string, action: string) {

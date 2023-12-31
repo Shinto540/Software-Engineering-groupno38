@@ -12,10 +12,12 @@
     LISConfigurations: LISConfigurations$ | async,
     currentUser: currentUser$ | async,
     privileges: privileges$ | async,
-    providerDetails: providerDetails$ | async
+    providerDetails: providerDetails$ | async,
+    labTestRequestProgramStageId: labTestRequestProgramStageId$ | async
   } as params"
 >
   <div
+    style="margin-top: -20px"
     *ngIf="
       params?.datesParameters &&
       params?.sampleTypesLoadedState &&
@@ -24,7 +26,9 @@
       params?.labSamplesContainers &&
       params?.codedSampleRejectionReasons &&
       params?.LISConfigurations &&
-      params?.labSamplesDepartments
+      params?.labSamplesDepartments &&
+      ((params?.LISConfigurations && params?.labTestRequestProgramStageId) ||
+        !params?.labTestRequestProgramStageId)
     "
   >
     <app-sample-results-dashboard
@@ -39,6 +43,7 @@
       [currentUser]="params?.currentUser"
       [privileges]="params?.privileges"
       [providerDetails]="params?.providerDetails"
+      [labTestRequestProgramStageId]="params?.labTestRequestProgramStageId"
     ></app-sample-results-dashboard>
   </div>
   <mat-progress-bar

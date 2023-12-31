@@ -1,20 +1,27 @@
 import { Component, OnInit } from "@angular/core";
 import { ActivatedRoute } from "@angular/router";
-import { Store } from "@ngrx/store";
+import { select, Store } from "@ngrx/store";
 import { Observable } from "rxjs";
 import { SystemSettingsService } from "src/app/core/services/system-settings.service";
 import { loadCurrentPatient, loadRolesDetails } from "src/app/store/actions";
 import { loadPatientBills } from "src/app/store/actions/bill.actions";
 import { loadActiveVisit } from "src/app/store/actions/visit.actions";
 import { AppState } from "src/app/store/reducers";
-import { getAllRadiologyOrders } from "src/app/store/selectors";
+import {
+  getAllRadiologyOrders,
+  getCurrentLocation,
+} from "src/app/store/selectors";
+import { getAllBills } from "src/app/store/selectors/bill.selectors";
 import { getCurrentPatient } from "src/app/store/selectors/current-patient.selectors";
 import {
   getAllUSerRoles,
   getCurrentUserDetails,
   getCurrentUserPrivileges,
 } from "src/app/store/selectors/current-user.selectors";
-import { getActiveVisitUuid } from "src/app/store/selectors/visit.selectors";
+import {
+  getActiveVisit,
+  getActiveVisitUuid,
+} from "src/app/store/selectors/visit.selectors";
 
 @Component({
   selector: "app-patient-radiology-orders",
@@ -33,6 +40,10 @@ export class PatientRadiologyOrdersComponent implements OnInit {
 
   activeVisitUuid$: Observable<string>;
   currentPatient$: Observable<any>;
+  currentBills$: Observable<any>;
+  activeVisit$: Observable<any>;
+  currentLocation$: Observable<any>;
+  showHistoryDetails: boolean = false;
   constructor(
     private store: Store<AppState>,
     private route: ActivatedRoute,
@@ -49,6 +60,7 @@ export class PatientRadiologyOrdersComponent implements OnInit {
         isRegistrationPage: true,
       })
     );
+    this.currentBills$ = this.store.select(getAllBills);
     this.store.dispatch(loadActiveVisit({ patientId: this.patientId }));
     this.store.dispatch(loadCurrentPatient({ uuid: this.patientId }));
     this.store.dispatch(loadPatientBills({ patientUuid: this.patientId }));
@@ -57,6 +69,13 @@ export class PatientRadiologyOrdersComponent implements OnInit {
     this.currentUser$ = this.store.select(getCurrentUserDetails);
     this.orders$ = this.store.select(getAllRadiologyOrders);
     this.activeVisitUuid$ = this.store.select(getActiveVisitUuid);
+    this.activeVisit$ = this.store.pipe(select(getActiveVisit));
     this.currentPatient$ = this.store.select(getCurrentPatient);
+    this.currentLocation$ = this.store.select(getCurrentLocation(false));
+  }
+
+  onToggleHistory(event: Event): void {
+    event.stopPropagation();
+    this.showHistoryDetails = !this.showHistoryDetails;
   }
 }

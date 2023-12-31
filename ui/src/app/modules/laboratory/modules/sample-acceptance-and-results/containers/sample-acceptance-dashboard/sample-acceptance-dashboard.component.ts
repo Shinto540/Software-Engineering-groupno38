@@ -34,6 +34,9 @@ export class SampleAcceptanceDashboardComponent implements OnInit {
   codedSampleRejectionReasons$: Observable<any[]>;
   samplesLoadedState$: Observable<any>;
   currentUser$: Observable<any>;
+
+  page: number = 1;
+  pageCount: number = 100;
   constructor(private store: Store<AppState>) {}
 
   ngOnInit(): void {
@@ -41,17 +44,6 @@ export class SampleAcceptanceDashboardComponent implements OnInit {
     // console.log("Acceptance", this.datesParameters, this.labSamplesDepartments);
     this.store.dispatch(
       addLabDepartments({ labDepartments: this.labSamplesDepartments })
-    );
-    this.store.dispatch(
-      loadLabSamplesByCollectionDates({
-        datesParameters: this.datesParameters,
-        patients: this.patients,
-        sampleTypes: this.sampleTypes,
-        departments: this.labSamplesDepartments,
-        containers: this.labSamplesContainers,
-        configs: this.configs,
-        codedSampleRejectionReasons: this.codedSampleRejectionReasons,
-      })
     );
 
     this.codedSampleRejectionReasons$ = this.store.select(

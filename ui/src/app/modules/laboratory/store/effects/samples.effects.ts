@@ -264,10 +264,11 @@ export class SamplesEffects {
           )
           .pipe(
             switchMap((allSamples) => {
+              // console.log("allSamples", allSamples);
               let samples = [];
               let samplesToCollect = [];
               // TODO: Add a way to handle emergency visit and IPD through configurations
-              _.map(allSamples, (sample) => {
+              _.forEach(allSamples, (sample) => {
                 if (sample.hasOwnProperty("id")) {
                   samples = [...samples, sample];
                 } else {
@@ -277,11 +278,10 @@ export class SamplesEffects {
                       ...formattedOrders,
                       {
                         ...order,
-                        paid:
-                          action.visit.isEnsured ||
-                          action.paidItems[order?.concept?.display]
-                            ? true
-                            : false,
+                        paid: action.paidItems[order?.uuid] ? true : false,
+                        isEnsured: action.visit.isEnsured,
+                        isEmergency: action.visit.isEmergency,
+                        isAdmitted: action.visit.isAdmitted,
                       },
                     ];
                   });
@@ -290,6 +290,9 @@ export class SamplesEffects {
                     ...samplesToCollect,
                     {
                       ...sample,
+                      isEnsured: action.visit.isEnsured,
+                      isEmergency: action.visit.isEmergency,
+                      isAdmitted: action.visit.isAdmitted,
                       atLeastOnePaid:
                         (_.filter(formattedOrders, { paid: true }) || [])
                           ?.length > 0
@@ -302,17 +305,18 @@ export class SamplesEffects {
                   ];
                 }
               });
-              const filteredSamplesToCollect =
-                samplesToCollect.filter(
-                  (sampleToCollect) =>
-                    (
-                      samples.filter(
-                        (sample) =>
-                          sample?.departmentSpecimentSource ===
-                          sampleToCollect?.departmentSpecimentSource
-                      ) || []
-                    ).length === 0
-                ) || [];
+              // console.log("samplesToCollect", samplesToCollect);
+              // const filteredSamplesToCollect =
+              //   samplesToCollect.filter(
+              //     (sampleToCollect) =>
+              //       (
+              //         samples.filter(
+              //           (sample) =>
+              //             sample?.departmentSpecimentSource ===
+              //             sampleToCollect?.departmentSpecimentSource
+              //         ) || []
+              //       ).length === 0
+              //   ) || [];
               this.notificationService.show(
                 new Notification({
                   message: "Successfully loaded lab orders",
@@ -322,7 +326,7 @@ export class SamplesEffects {
               return [
                 upsertSamples({ samples }),
                 upsertSamplesToCollect({
-                  samplesToCollect: filteredSamplesToCollect,
+                  samplesToCollect,
                 }),
               ];
             })

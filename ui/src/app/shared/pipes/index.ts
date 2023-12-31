@@ -13,6 +13,18 @@ import { FilterDiagnosesPipe } from "./filter-diagnoses.pipe";
 import { UpdatePrivilegesWithSelectedAttributePipe } from "./update-privileges-with-selected-attribute.pipe";
 import { UpdateRolesWithSelectedAttributePipe } from "./update-roles-with-selected-attribute.pipe";
 import { SanitizeDangerousUrlPipe } from "./sanitize-dangerous-url.pipe";
+import { SearchTestDetailsPipe } from "./search-test-details.pipe";
+import { CreateLabFieldsPipe } from "./create-lab-fields.pipe";
+import { FilterResultsByResultGroupPipe } from "./filter-results-by-result-group.pipe";
+import { FormatLabelCharCountDisplayPipe } from "./format-label-char-count-display.pipe";
+import { FilterOrdersByOrderPipe } from "./filter-orders-by-order.pipe";
+import { GetAssociatedFieldsPipe } from "./get-associated-fields.pipe";
+import { SearchingItemPipe } from "./searching-item.pipe";
+import { GroupParametersByHeadersPipe } from "./group-parameters-by-headers.pipe";
+import { IdentifyParametersWithoutHeadersPipe } from "./identify-parameters-without-headers.pipe";
+import { FilterDrugOrdersPipe } from "./filter-drug-orders.pipe";
+import { TimeConversionPipe } from "./time-conversion.pipe";
+
 
 export const sharedPipes: any[] = [
   FilterByPipe,
@@ -30,4 +42,15 @@ export const sharedPipes: any[] = [
   UpdatePrivilegesWithSelectedAttributePipe,
   UpdateRolesWithSelectedAttributePipe,
   SanitizeDangerousUrlPipe,
+  SearchTestDetailsPipe,
+  CreateLabFieldsPipe,
+  FilterResultsByResultGroupPipe,
+  FormatLabelCharCountDisplayPipe,
+  FilterOrdersByOrderPipe,
+  GetAssociatedFieldsPipe,
+  SearchingItemPipe,
+  GroupParametersByHeadersPipe,
+  IdentifyParametersWithoutHeadersPipe,
+  FilterDrugOrdersPipe,
+  TimeConversionPipe
 ];

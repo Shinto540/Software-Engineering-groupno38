@@ -71,6 +71,9 @@ export class SharedConceptCreateComponent implements OnInit {
 
   testMethodUuid: string;
   conceptBeingEdited: ConceptGetFull;
+
+  errors: any[] = [];
+  currentMappings: any[] = [];
   constructor(
     private conceptService: ConceptsService,
     private billableItemService: BillableItemsService
@@ -138,14 +141,27 @@ export class SharedConceptCreateComponent implements OnInit {
   }
 
   createCodesMappingSourceField(data?: any): void {
+    const conceptSourceUuid =
+      data && data?.mappings?.length > 0
+        ? data?.mappings[0]?.conceptReferenceTerm?.conceptSource?.uuid
+        : null;
+
+    console.log("conceptSourceUuid", conceptSourceUuid);
+    console.log(data?.mappings);
+
+    this.currentMappings =
+      data && data?.mappings?.length > 0
+        ? data?.mappings?.filter(
+            (mapping) =>
+              mapping?.conceptReferenceTerm?.conceptSource?.uuid ===
+              conceptSourceUuid
+          ) || []
+        : [];
     this.codesMappingsSourceField = new Dropdown({
       id: "source",
       key: "source",
       label: "Mapping Reference",
-      value:
-        data && data?.length > 0
-          ? data[0]?.conceptReferenceTerm?.conceptSource?.uuid
-          : null,
+      value: conceptSourceUuid,
       options: this.conceptSources.map((source) => {
         return {
           key: source?.uuid,
@@ -256,6 +272,7 @@ export class SharedConceptCreateComponent implements OnInit {
       .subscribe((response) => {
         if (response) {
           this.createBasicConceptFields(response);
+          this.createCodesMappingSourceField(response);
           this.editingSet = true;
           this.readyToCollectCodes = false;
           this.selectedCodingItems =
@@ -279,6 +296,7 @@ export class SharedConceptCreateComponent implements OnInit {
 
   onSave(event: Event, selectedTestMethodDetails?: any): void {
     event.stopPropagation();
+    this.errors = [];
     const conceptName = this.formData["name"]?.value;
     let searchIndexedTerms = [
       {
@@ -413,7 +431,7 @@ export class SharedConceptCreateComponent implements OnInit {
             ? this.conceptService.createConcept(concept)
             : this.conceptService.updateConcept(this.conceptUuid, concept)
           ).subscribe((response: any) => {
-            if (response) {
+            if (response && !response?.error) {
               // If it is test order create as a billable item
               if (
                 !this.conceptUuid &&
@@ -426,7 +444,7 @@ export class SharedConceptCreateComponent implements OnInit {
                 this.billableItemService
                   .createBillableItem(billableItem)
                   .subscribe((billableItemResponse) => {
-                    if (billableItemResponse) {
+                    if (billableItemResponse && !billableItemResponse?.error) {
                       // Create prices
                       const prices = [
                         {
@@ -467,8 +485,11 @@ export class SharedConceptCreateComponent implements OnInit {
                               response?.uuid,
                               searchIndexedTerms
                             )
-                            .subscribe((conceptNameResponse) => {
-                              if (conceptNameResponse) {
+                            .subscribe((conceptNameResponse: any) => {
+                              if (
+                                conceptNameResponse &&
+                                !conceptNameResponse?.error
+                              ) {
                                 this.saving = false;
                                 this.conceptUuid = null;
                                 this.savingMessage =
@@ -480,10 +501,19 @@ export class SharedConceptCreateComponent implements OnInit {
                                 this.conceptCreated.emit(true);
                                 this.selectedSetMembers = [];
                                 this.createBasicConceptFields();
+                              } else {
+                                this.saving = false;
+                                this.errors = [
+                                  ...this.errors,
+                                  conceptNameResponse,
+                                ];
                               }
                             });
                         }
                       });
+                    } else {
+                      this.saving = false;
+                      this.errors = [...this.errors, billableItemResponse];
                     }
                   });
               } else {
@@ -492,8 +522,8 @@ export class SharedConceptCreateComponent implements OnInit {
                     response?.uuid,
                     uniqBy(searchIndexedTerms, "name")
                   )
-                  .subscribe((conceptNameResponse) => {
-                    if (conceptNameResponse) {
+                  .subscribe((conceptNameResponse: any) => {
+                    if (conceptNameResponse && !conceptNameResponse?.error) {
                       this.saving = false;
                       this.alertType = "success";
                       this.savingMessage =
@@ -506,9 +536,15 @@ export class SharedConceptCreateComponent implements OnInit {
                       this.conceptCreated.emit(true);
                       this.selectedSetMembers = [];
                       this.createBasicConceptFields();
+                    } else {
+                      this.saving = false;
+                      this.errors = [...this.errors, conceptNameResponse];
                     }
                   });
               }
+            } else {
+              this.saving = false;
+              this.errors = [...this.errors, response];
             }
           });
         }

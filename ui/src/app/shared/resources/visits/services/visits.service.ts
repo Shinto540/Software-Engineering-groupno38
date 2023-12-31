@@ -1,3 +1,4 @@
+import { query } from "@angular/animations";
 import { ClassGetter } from "@angular/compiler/src/output/output_ast";
 import { Injectable } from "@angular/core";
 import { DomSanitizer } from "@angular/platform-browser";
@@ -40,6 +41,72 @@ export class VisitsService {
     );
   }
 
+  getVisitEncounterDetailsByVisitUuid(parameters): Observable<any> {
+    return from(
+      this.api.visit.getVisit(parameters?.uuid, parameters?.query)
+    ).pipe(
+      map((response) => {
+        return response.encounters.map((encounter: any) => {
+          let formattedObs = [];
+          const encounterProvider = encounter?.encounterProviders[0];
+          formattedObs = [
+            ...formattedObs,
+            ...encounter?.obs.map((observation) => {
+              return {
+                ...observation,
+                value: !observation?.value?.uuid
+                  ? observation?.value
+                  : {
+                      ...observation?.value,
+                      display:
+                        observation?.value?.display?.indexOf(":") > -1
+                          ? observation?.value?.display.split(":")[1]
+                          : observation?.value?.display,
+                    },
+                encounterProvider: {
+                  ...encounterProvider?.provider,
+                  name:
+                    encounterProvider?.provider &&
+                    encounterProvider?.provider?.display?.indexOf(":") > -1
+                      ? encounterProvider?.provider?.display?.split(":")[0]
+                      : encounterProvider?.provider?.display?.split("- ")[1],
+                },
+                encounterType: encounter.encounterType,
+                conceptUuid: observation?.concept?.uuid || observation?.uuid,
+              };
+            }),
+          ];
+
+          const groupedObsByConcept = groupBy(formattedObs, "conceptUuid");
+          const obs = Object.keys(groupedObsByConcept).map((key) => {
+            return {
+              uuid: key,
+              history: orderBy(
+                groupedObsByConcept[key],
+                ["obsDatetime"],
+                ["asc"]
+              ),
+              latest: orderBy(
+                groupedObsByConcept[key],
+                ["obsDatetime"],
+                ["desc"]
+              )[0],
+            };
+          });
+
+          return {
+            ...encounter,
+            attributes: response?.attributes,
+            keyedObs: keyBy(obs, "uuid"),
+          };
+        });
+      }),
+      catchError((error) => {
+        return of(error);
+      })
+    );
+  }
+
   getVisitObservationsByVisitUuid(parameters): Observable<any> {
     return from(
       this.api.visit.getVisit(parameters?.uuid, parameters?.query)
@@ -47,12 +114,22 @@ export class VisitsService {
       map((response) => {
         let formattedObs = [];
         response.encounters.map((encounter: any) => {
+          const encounterProvider = encounter?.encounterProviders[0];
           formattedObs = [
             ...formattedObs,
             ...encounter?.obs.map((observation) => {
               return {
                 ...observation,
-                conceptUuid: observation?.concept?.uuid,
+                encounterProvider: {
+                  ...encounterProvider?.provider,
+                  name:
+                    encounterProvider?.provider &&
+                    encounterProvider?.provider?.display?.indexOf(":") > -1
+                      ? encounterProvider?.provider?.display?.split(":")[0]
+                      : encounterProvider?.provider?.display?.split("- ")[1],
+                },
+                encounterType: encounter.encounterType,
+                conceptUuid: observation?.concept?.uuid || observation?.uuid,
               };
             }),
           ];
@@ -61,15 +138,53 @@ export class VisitsService {
         const obs = Object.keys(groupedObsByConcept).map((key) => {
           return {
             uuid: key,
-            history: groupedObsByConcept[key],
+            history: orderBy(
+              groupedObsByConcept[key],
+              ["obsDatetime"],
+              ["asc"]
+            ),
             latest: orderBy(
               groupedObsByConcept[key],
-              ["observationDatetime"],
+              ["obsDatetime"],
               ["desc"]
             )[0],
           };
         });
         return keyBy(obs, "uuid");
+      }),
+      catchError((error) => {
+        return of(error);
+      })
+    );
+  }
+
+  getVisitDiagnosesByVisitUuid(parameters: any): Observable<any> {
+    return from(
+      this.api.visit.getVisit(parameters?.uuid, parameters?.query)
+    ).pipe(
+      map((response) => {
+        let formattedDiagnoses = [];
+        response.encounters.map((encounter: any) => {
+          const encounterProvider = encounter?.encounterProviders[0];
+          formattedDiagnoses = [
+            ...formattedDiagnoses,
+            ...encounter?.diagnoses.map((diagnosis) => {
+              return {
+                ...diagnosis,
+                encounterProvider: {
+                  ...encounterProvider?.provider,
+                  name:
+                    encounterProvider?.provider &&
+                    encounterProvider?.provider?.display?.indexOf(":") > -1
+                      ? encounterProvider?.provider?.display?.split(":")[0]
+                      : encounterProvider?.provider?.display?.split("- ")[1],
+                },
+                encounterType: encounter.encounterType,
+              };
+            }),
+          ];
+        });
+        return formattedDiagnoses;
       }),
       catchError((error) => {
         return of(error);
@@ -89,7 +204,7 @@ export class VisitsService {
   }
 
   getLabVisits(
-    queryParam?: string,
+    queryParams?: any,
     startIndex?: number,
     limit?: number
   ): Observable<Visit[]> {
@@ -116,6 +231,28 @@ export class VisitsService {
                   : "Cash",
             };
             return new Visit(formattedResult);
+          });
+        }),
+        catchError((error) => {
+          return of(error);
+        })
+      );
+  }
+  getPatientsVisitsByEncounterType(
+    encounterTypeUuid: string
+  ): Observable<any[]> {
+    return this.httpClient
+      .get(
+        `icare/visit?encounterTypeUuid=${encounterTypeUuid}&includeDeadPatients=true`
+      )
+      .pipe(
+        map((visitResults: any) => {
+          console;
+          return visitResults?.results.map((result) => {
+            return {
+              ...result,
+              locationUuid: result?.location?.uuid,
+            };
           });
         }),
         catchError((error) => {
@@ -166,7 +303,11 @@ export class VisitsService {
     orderStatusCode?: string,
     orderBy?: string,
     orderByDirection?: string,
-    filterBy?: string
+    filterBy?: string,
+    encounterType?: string,
+    sampleCategory?: string,
+    excludedSampleCategories?: string[],
+    includeDeadPatients?: boolean
   ): Observable<any> {
     const locationUuids: any = isArray(location)
       ? location
@@ -175,84 +316,101 @@ export class VisitsService {
       : [];
 
     // Parameters for sorting
-    const orderByParameter = orderBy ? `&OrderBy=${orderBy}` : "";
-    const orderDirectionParameter = orderByDirection
-      ? `&orderByDirection=${orderByDirection}`
-      : "";
-    const sortingParameters =
-      orderByParameter || orderDirectionParameter
-        ? orderByParameter + orderDirectionParameter
-        : "";
-
-    if (orderType || !orderType) {
-      const orderStatusParameter = orderStatus
-        ? `&fulfillerStatus=${orderStatus}`
-        : "";
-      const orderStatusCodeParameter = orderStatusCode
-        ? `&orderStatusCode=${orderStatusCode}`
-        : "";
-      const orderTypeParameter = orderType ? `&orderTypeUuid=${orderType}` : "";
-
-      const searchTerm = queryParam ? `&q=${queryParam}` : "";
-      const filterByConst = filterBy ? filterBy : "";
-      //
-      return (
-        locationUuids?.length > 0
-          ? zip(
-              ...locationUuids.map((locationUuid) => {
-                const locationParameter = `locationUuid=${locationUuid}`;
-                return this.httpClient.get(
-                  `icare/visit?${locationParameter}${orderTypeParameter}${orderStatusParameter}${orderStatusCodeParameter}${searchTerm}${sortingParameters}${filterByConst}&startIndex=${startIndex}&limit=${limit}`
-                );
-              })
-            )
-          : this.httpClient.get(
-              `icare/visit?${orderTypeParameter.replace(
-                "&",
-                ""
-              )}${orderStatusParameter}${orderStatusCodeParameter}${searchTerm}${sortingParameters}${filterByConst}&startIndex=${startIndex}&limit=${limit}`
-            )
-      ).pipe(
-        map((visitResponse: any) => {
-          const results =
-            locationUuids?.length > 0
-              ? flatten(visitResponse.map((visitData) => visitData?.results))
-              : visitResponse?.results;
-          // TODO: Softcode Insurance attribute value (Concept UUID) - 00000101IIIIIIIIIIIIIIIIIIIIIIIIIIII
-          return (
-            (flatten(results) || [])
-              .map((visitResult: any) => {
-                const formattedResult = {
-                  pager:
-                    locationUuids?.length > 0
-                      ? visitResponse[0].links
-                      : visitResponse?.links,
-                  ...visitResult,
-                  paymentType:
-                    (
-                      visitResult?.attributes.filter(
-                        (attribute) =>
-                          attribute &&
-                          attribute?.display &&
-                          attribute?.display ===
-                            "00000101IIIIIIIIIIIIIIIIIIIIIIIIIIII"
-                      ) || []
-                    ).length > 0
-                      ? "Insurance"
-                      : "Cash",
-                };
-                return new Visit(formattedResult);
-              })
-              .filter((visit) =>
-                !onlyInsurance ? visit : visit?.paymentType === "Insurance"
-              ) || []
-          );
-        }),
-        catchError((error) => {
-          return of(error);
-        })
-      );
+    let parametersString = "";
+    if (orderBy) {
+      parametersString += `&OrderBy=${orderBy}`;
     }
+    if (orderStatus) {
+      parametersString += `&fulfillerStatus=${orderStatus}`;
+    }
+    if (orderByDirection) {
+      parametersString += `&orderByDirection=${orderByDirection}`;
+    }
+    if (orderStatusCode) {
+      parametersString += `&orderStatusCode=${orderStatusCode}`;
+    }
+    if (orderType) {
+      parametersString += `&orderTypeUuid=${orderType}`;
+    }
+    if (queryParam) {
+      parametersString += `&q=${queryParam}`;
+    }
+
+    if (sampleCategory) {
+      parametersString += `&sampleCategory=${sampleCategory}`;
+    }
+    if (filterBy) {
+      parametersString += filterBy;
+    }
+
+    if (encounterType) {
+      parametersString += `&encounterTypeUuid=${encounterType}`;
+    }
+
+    if (excludedSampleCategories && excludedSampleCategories?.length > 0) {
+      parametersString += `&exclude=${excludedSampleCategories.join(",")}`;
+    }
+    if (includeDeadPatients && includeDeadPatients === true) {
+      parametersString += `&includeDeadPatients=true`;
+    }
+    //
+    return (
+      locationUuids?.length > 0
+        ? zip(
+            ...locationUuids.map((locationUuid) => {
+              const locationParameter = `locationUuid=${locationUuid}`;
+              return this.httpClient.get(
+                `icare/visit?${locationParameter}${parametersString}&startIndex=${startIndex}&limit=${limit}`
+              );
+            })
+          )
+        : this.httpClient.get(
+            `icare/visit?${parametersString.replace(
+              "&",
+              ""
+            )}&startIndex=${startIndex}&limit=${limit}`
+          )
+    ).pipe(
+      map((visitResponse: any) => {
+        const results =
+          locationUuids?.length > 0
+            ? flatten(visitResponse.map((visitData) => visitData?.results))
+            : visitResponse?.results;
+        // TODO: Softcode Insurance attribute value (Concept UUID) - 00000101IIIIIIIIIIIIIIIIIIIIIIIIIIII
+        return (
+          (flatten(results) || [])
+            .map((visitResult: any) => {
+              const formattedResult = {
+                pager:
+                  locationUuids?.length > 0
+                    ? visitResponse[0].links
+                    : visitResponse?.links,
+                ...visitResult,
+                paymentType:
+                  (
+                    visitResult?.attributes.filter(
+                      (attribute) =>
+                        attribute &&
+                        attribute?.display &&
+                        attribute?.display ===
+                          "00000101IIIIIIIIIIIIIIIIIIIIIIIIIIII"
+                    ) || []
+                  ).length > 0
+                    ? "Insurance"
+                    : "Cash",
+              };
+              return new Visit(formattedResult);
+            })
+            .filter((visit) =>
+              !onlyInsurance ? visit : visit?.paymentType === "Insurance"
+            ) || []
+        );
+      }),
+      catchError((error) => {
+        return of(error);
+      })
+    );
+    // }
     return (
       locationUuids?.length > 0
         ? zip(
@@ -476,6 +634,17 @@ export class VisitsService {
     );
   }
 
+  deleteVisit(uuid, purge: boolean = false): Observable<any> {
+    return from(this.api.visit.deleteVisit(uuid, { purge: purge })).pipe(
+      map((response) => {
+        return response;
+      }),
+      catchError((error) => {
+        return error;
+      })
+    );
+  }
+
   getVisitClaim(visitUuid) {
     return this.httpClient.get(`icare/visit/${visitUuid}/claimForm`).pipe(
       map((response) => {
@@ -519,7 +688,7 @@ export class VisitsService {
   getVisitDetailsByVisitUuid(uuid: string, params?: any): Observable<any> {
     return from(this.api.visit.getVisit(uuid, params)).pipe(
       map((response) => {
-        return response;
+        return new Visit(response);
       }),
       catchError((error) => of(error))
     );
@@ -602,7 +771,7 @@ export class VisitsService {
         this.api.visit.getAllVisits({
           includeInactive: includeInactive,
           patient: patient,
-          v: `custom:(uuid,visitType,location:(uuid,display,tags,parentLocation:(uuid,display)),startDatetime,attributes,stopDatetime,patient:(uuid,display,identifiers,person,voided),encounters:(uuid,form,location,obs,orders,diagnoses,encounterDatetime,encounterType))`,
+          v: `custom:(uuid,visitType,location:(uuid,display,tags,parentLocation:(uuid,display)),startDatetime,attributes,stopDatetime,patient:(uuid,display,identifiers,person,voided),encounters:(uuid,form,location,obs:(accessionNumber,obsDatetime,comment,concept:(uuid,display,units,lowNormal,hiNormal),display,encounter,groupMembers,order,person,uuid,value,valueCodedName,valueModifier,voided),orders,diagnoses,encounterProviders,encounterDatetime,encounterType))`,
         } as any)
       )
     ).pipe(
@@ -681,7 +850,7 @@ export class VisitsService {
         this.api.visit.getAllVisits({
           includeInactive: includeInactive,
           patient,
-          v: `custom:(uuid,visitType,location:(uuid,display,tags,parentLocation:(uuid,display)),startDatetime,attributes,stopDatetime,patient:(uuid,display,identifiers,person,voided),encounters:(uuid,form,location,obs,orders,diagnoses,encounterDatetime,encounterType))`,
+          v: `custom:(uuid,visitType,location:(uuid,display,tags,parentLocation:(uuid,display)),startDatetime,attributes,stopDatetime,patient:(uuid,display,identifiers,person,voided),encounters:(uuid,form,location,obs:(accessionNumber,obsDatetime,comment,concept:(uuid,display,units,lowNormal,hiNormal,setMembers:(uuid,display,units,lowNormal,hiNormal)),display,encounter,groupMembers,order,person,uuid,value,valueCodedName,valueModifier,voided),orders,diagnoses,encounterProviders,encounterDatetime,encounterType,voided,voidReason))`,
         } as any)
       ),
       shouldNotLoadNonVisitItems
@@ -857,5 +1026,67 @@ export class VisitsService {
       }),
       catchError((error) => of(error))
     );
+  }
+
+  createVisitAttribute(visitUuid: string, visitAttribute): Observable<any> {
+    return from(
+      this.api.visit.createVisitAttribute(visitUuid, visitAttribute)
+    ).pipe(
+      map((response) => {
+        return response;
+      }),
+      catchError((error) => of(error))
+    );
+  }
+
+  getSamplesByVisitUuid(visitUuid: string, parameters: any): Observable<any[]> {
+    let queryParams = [];
+    Object.keys(parameters)?.map((key) => {
+      queryParams = [...queryParams, key + "=" + parameters[key]];
+    });
+    return this.httpClient
+      .get("lab/samples?visit=" + visitUuid + "&" + queryParams.join("&"))
+      ?.pipe(
+        map((response) => {
+          return (response?.results ? response?.results : response)?.map(
+            (sample) => {
+              return {
+                ...sample,
+                accepted:
+                  (
+                    sample?.statuses?.filter(
+                      (status) => status?.category?.toLowerCase() === "accepted"
+                    ) || []
+                  )?.length > 0,
+                rejected:
+                  (
+                    sample?.statuses?.filter(
+                      (status) => status?.category?.toLowerCase() === "rejected"
+                    ) || []
+                  )?.length > 0,
+                hasResults:
+                  (
+                    sample?.statuses?.filter(
+                      (status) =>
+                        status?.category?.toLowerCase() === "has_results"
+                    ) || []
+                  )?.length > 0,
+                authorized:
+                  (
+                    sample?.statuses?.filter(
+                      (status) => status?.status?.toLowerCase() === "authorized"
+                    ) || []
+                  )?.length > 0,
+                approved:
+                  (
+                    sample?.statuses?.filter(
+                      (status) => status?.status?.toLowerCase() === "approved"
+                    ) || []
+                  )?.length > 0,
+              };
+            }
+          );
+        })
+      );
   }
 }

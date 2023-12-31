@@ -6,7 +6,8 @@
     radiologyOrderType: radiologyOrderType$ | async,
     drugOrderType: drugOrderType$ | async,
     labTestOrderType: labTestOrderType$ | async,
-    showAllPatientsTab: showAllPatientsTab$ | async
+    showAllPatientsTab: showAllPatientsTab$ | async,
+    userPrivileges: userPrivileges$ | async
   } as params"
 >
   <mat-toolbar>
@@ -122,9 +123,24 @@
           <!-- </div> -->
         </mat-tab>
 
+        <mat-tab label="Admitted Patients">
+          <ng-template matTabContent>
+            <app-patient-list
+              [shouldShowParentLocation]="true"
+              [isTabularList]="true"
+              [itemsPerPage]="10"
+              [encounterType]="'e22e39fd-7db2-45e7-80f1-60fa0d5a4378'"
+              (selectPatient)="onSelectPatient($event)"
+            ></app-patient-list>
+          </ng-template>
+        </mat-tab>
         <mat-tab
           label="All Patients"
-          *ngIf="params?.showAllPatientsTab?.value === 'true'"
+          *ngIf="
+            params?.showAllPatientsTab?.value === 'true' &&
+            (params?.userPrivileges['CLINIC_VIEW_ALL_CLIENTS'] ||
+              params?.userPrivileges['ALL'])
+          "
         >
           <ng-template matTabContent>
             <app-patient-list
@@ -132,21 +148,23 @@
               [doNotUseLocation]="true"
               [isTabularList]="true"
               [itemsPerPage]="10"
-              [orderType]="'iCARE901-ADMS-11e8-b450-525400e4297f'"
+              [orderType]=""
               (selectPatient)="onSelectPatient($event)"
             ></app-patient-list>
           </ng-template>
         </mat-tab>
-
-        <mat-tab label="Admitted Patients">
+        <mat-tab
+          label="Every Patients History"
+          *ngIf="
+            params?.userPrivileges[
+              'CLINIC_VIEW_PATIENT_HISTORY_WITHOUT_ACTIVE_VISIT'
+            ] || params?.userPrivileges['ALL']
+          "
+        >
           <ng-template matTabContent>
-            <app-patient-list
-              [shouldShowParentLocation]="true"
-              [isTabularList]="true"
-              [itemsPerPage]="10"
-              [orderType]="'iCARE901-ADMS-11e8-b450-525400e4297f'"
-              (selectPatient)="onSelectPatient($event)"
-            ></app-patient-list>
+            <app-patient-search
+              (selectPatient)="onOpenHistory($event)"
+            ></app-patient-search>
           </ng-template>
         </mat-tab>
       </mat-tab-group>

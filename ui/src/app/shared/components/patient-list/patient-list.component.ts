@@ -48,6 +48,8 @@ export class PatientListComponent implements OnInit, OnChanges {
   @Input() orderBy: string;
   @Input() orderByDirection: string;
   @Input() doNotUseLocation: boolean;
+  @Input() encounterType: string;
+  @Input() includeDeadPatients: boolean;
 
   page: number = 0;
   visits$: Observable<Visit[]>;
@@ -72,7 +74,9 @@ export class PatientListComponent implements OnInit, OnChanges {
     private router: Router,
     private dialog: MatDialog,
     private systemSettingsService: SystemSettingsService
-  ) {}
+  ) {
+    
+  }
 
   ngOnChanges() {}
 
@@ -93,7 +97,13 @@ export class PatientListComponent implements OnInit, OnChanges {
       this.paymentTypeSelected = this.defaultFilter;
     }
     this.itemsPerPage = this.itemsPerPage ? this.itemsPerPage : 10;
+    if(this.filterCategory === "billing"){
+      this.includeDeadPatients = true;
+    }
     this.getVisits(this.visits);
+    
+    
+    
   }
 
   private getVisits(visits: Visit[]) {
@@ -119,7 +129,11 @@ export class PatientListComponent implements OnInit, OnChanges {
             this.orderStatusCode,
             this.orderBy ? this.orderBy : "ENCOUNTER",
             this.orderByDirection ? this.orderByDirection : "ASC",
-            this.filterBy ? this.filterBy : ""
+            this.filterBy ? this.filterBy : "",
+            this.encounterType,
+            null,
+            null,
+            this.includeDeadPatients
           )
           .pipe(
             tap((response: any) => {
@@ -173,7 +187,11 @@ export class PatientListComponent implements OnInit, OnChanges {
               this.orderStatusCode,
               this.orderBy ? this.orderBy : "ENCOUNTER",
               this.orderByDirection ? this.orderByDirection : "ASC",
-              this.filterBy
+              this.filterBy,
+              this.encounterType,
+              null,
+              null,
+              this.includeDeadPatients
             )
             .pipe(
               tap((response: any) => {
@@ -202,7 +220,11 @@ export class PatientListComponent implements OnInit, OnChanges {
         this.orderStatusCode,
         this.orderBy ? this.orderBy : "ENCOUNTER",
         this.orderByDirection ? this.orderByDirection : "ASC",
-        this.filterBy ? this.filterBy : ""
+        this.filterBy ? this.filterBy : "",
+        this.encounterType,
+        null,
+        null,
+        this.includeDeadPatients
       )
       .pipe(
         tap((response: any) => {
@@ -297,7 +319,11 @@ export class PatientListComponent implements OnInit, OnChanges {
         this.orderStatusCode,
         this.orderBy ? this.orderBy : "ENCOUNTER",
         this.orderByDirection ? this.orderByDirection : "ASC",
-        this.filterBy
+        this.filterBy,
+        this.encounterType,
+        null,
+        null,
+        this.includeDeadPatients
       )
       .pipe(
         tap((response: any) => {

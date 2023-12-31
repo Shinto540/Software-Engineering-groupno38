@@ -85,7 +85,7 @@ import { AttendProcedureOrderComponent } from "./attend-procedure-order/attend-p
 import { SharedBmiComponent } from "./shared-bmi/shared-bmi.component";
 import { PatientObservationsChartComponent } from "./patient-observations-chart/patient-observations-chart.component";
 import { ObservationChartTableComponent } from "./observation-chart-table/observation-chart-table.component";
-import { SharedConfirmationComponent } from "./shared-confirmation /shared-confirmation.component";
+import { SharedConfirmationComponent } from "./shared-confirmation/shared-confirmation.component";
 import { IpdFormsComponent } from "./ipd-forms/ipd-forms.component";
 import { SharedErrorComponent } from "./shared-error/shared-error.component";
 import { SharedConceptCreateComponent } from "./shared-concept-create/shared-concept-create.component";
@@ -98,10 +98,38 @@ import { PricingItemComponent } from "./pricing-item/pricing-item.component";
 import { SharedLocationAttributesManagerComponent } from "./shared-location-attributes-manager/shared-location-attributes-manager.component";
 import { SharedParameterResultsComponent } from "./shared-parameter-results/shared-parameter-results.component";
 import { PatientAddressComponent } from "./patient-address/patient-address.component";
+import { SharedIPDRoundContainerComponent } from "./shared-ipd-round-container/shared-ipd-round-container.component";
+import { SharedSampleDetailsComponent } from "./shared-sample-details/shared-sample-details.component";
+import { SharedVisitHistorySummaryComponent } from "./shared-visit-history-summary/shared-visit-history-summary.component";
+import { SharedSystemSettingsListComponent } from "./shared-system-settings-list/shared-system-settings-list.component";
+import { SharedUserProfileManagementComponent } from "./shared-user-profile-management/shared-user-profile-management.component";
+import { SharedManageUserComponent } from "./shared-manage-user/shared-manage-user.component";
+import { SharedDashboardContainerComponent } from "./shared-dashboard-container/shared-dashboard-container.component";
+import { SharedDashboardChartContainerComponent } from "./shared-dashboard-chart-container/shared-dashboard-chart-container.component";
+import { SharedDashboardChartItemComponent } from "./shared-dashboard-chart-item/shared-dashboard-chart-item.component";
+import { SharedDashboardSingleValueItemComponent } from "./shared-dashboard-single-value-item/shared-dashboard-single-value-item.component";
+import { SharedDashboardSingleValueContainerComponent } from "./shared-dashboard-single-value-container/shared-dashboard-single-value-container.component";
+import { SharedAddTestorderToSampleComponent } from "./shared-add-testorder-to-sample/shared-add-testorder-to-sample.component";
+import { SharedDepartmentsSelectionComponent } from "./shared-departments-selection/shared-departments-selection.component";
+import { SharedInstrumentsManagementComponent } from "./shared-instruments-management/shared-instruments-management.component";
+import { StandardConceptsListComponent } from "./standard-concepts-list/standard-concepts-list.component";
+import { SharedInstrumentSelectionComponent } from "./shared-instrument-selection/shared-instrument-selection.component";
+import { DateTimeFieldComponent } from "./date-time-field/date-time-field.component";
+import { PatientHistoryComponent } from "./patient-history/patient-history.component";
+import { PatientHistoryDataComponent } from "./patient-history-data/patient-history-data.component";
+import { SharedSamplesListComponent } from "./shared-samples-list/shared-samples-list.component";
+import { SharedReportsListComponent } from "./shared-reports-list/shared-reports-list.component";
+import { SharedCustomReportComponent } from "./shared-custom-report/shared-custom-report.component";
+import { SharedRenderReportDashboardComponent } from "./shared-render-report-dashboard/shared-render-report-dashboard.component";
+import { SharedDrugDosageInterpretationComponent } from "./shared-drug-dosage-interpretation/shared-drug-dosage-interpretation.component";
+import { SharedLocationBasedLogoComponent } from "./shared-location-based-logo/shared-location-based-logo.component";
+import { SharedPatientDischargeDetailsComponent } from "./shared-patient-discharge-details/shared-patient-discharge-details.component";
+import { DischargeDeceasedPatientModalComponent } from "./discharge-deceased-patient-modal /discharge-deceased-patient-modal.component";
+import { SharedNextOfKinsFormComponent } from "./shared-next-of-kins-form/shared-next-of-kins-form.component";
+import { SharedNextOfKinsFormDataComponent } from "./shared-next-of-kins-form-data/shared-next-of-kins-form-data.component";
 
 export const components: any[] = [
   PatientAddressComponent,
-
   PatientSearchComponent,
   PatientProfileComponent,
   DrugOrderComponent,
@@ -139,6 +167,7 @@ export const components: any[] = [
   PatientVisitHistoryModalComponent,
   PatientMedicationSummaryComponent,
   DischargePatientModalComponent,
+  DischargeDeceasedPatientModalComponent,
   CreatePatientBedOrderModalComponent,
   ProceduresHistorySummaryComponent,
   TransferPatientOutsideComponent,
@@ -189,7 +218,6 @@ export const components: any[] = [
   SharedBmiComponent,
   PatientObservationsChartComponent,
   ObservationChartTableComponent,
-  SharedConfirmationComponent,
   IpdFormsComponent,
   SharedErrorComponent,
   SharedConceptCreateComponent,
@@ -201,11 +229,39 @@ export const components: any[] = [
   PricingItemComponent,
   SharedLocationAttributesManagerComponent,
   SharedParameterResultsComponent,
+  SharedIPDRoundContainerComponent,
+  SharedSampleDetailsComponent,
+  SharedVisitHistorySummaryComponent,
+  SharedSystemSettingsListComponent,
+  SharedUserProfileManagementComponent,
+  SharedManageUserComponent,
+  SharedDashboardContainerComponent,
+  SharedDashboardChartContainerComponent,
+  SharedDashboardChartItemComponent,
+  SharedDashboardSingleValueItemComponent,
+  SharedDashboardSingleValueContainerComponent,
+  SharedAddTestorderToSampleComponent,
+  SharedDepartmentsSelectionComponent,
+  SharedInstrumentsManagementComponent,
+  StandardConceptsListComponent,
+  SharedInstrumentSelectionComponent,
+  DateTimeFieldComponent,
+  PatientHistoryComponent,
+  PatientHistoryDataComponent,
+  SharedConfirmationComponent,
+  SharedSamplesListComponent,
+  SharedReportsListComponent,
+  SharedCustomReportComponent,
+  SharedRenderReportDashboardComponent,
+  SharedDrugDosageInterpretationComponent,
+  SharedLocationBasedLogoComponent,
+  SharedPatientDischargeDetailsComponent,
+  SharedNextOfKinsFormComponent,
+  SharedNextOfKinsFormDataComponent,
 ];
 
 export const sharedEntryComponents: any[] = [
   PatientAddressComponent,
-
   LocationSelectModalComponent,
   CaptureFormDataModalComponent,
   AdmissionFormComponent,
@@ -224,8 +280,8 @@ export const sharedEntryComponents: any[] = [
   ManageRolesComponent,
   SharedConfirmationDialogComponent,
   AttendProcedureOrderComponent,
-  SharedConfirmationComponent,
   ManageItemPriceComponent,
+  SharedConfirmationComponent,
 ];
 
 export * from "./patient-vitals-summary/patient-vitals-summary.component";

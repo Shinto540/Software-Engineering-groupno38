@@ -62,12 +62,6 @@ export class AttendOrderedItemsComponent implements OnInit {
       this.currentBills,
       this.visit?.isEnsured
     );
-    this.orderedItems = addBillStatusToOrderedItems(
-      this.orderedItems,
-      this.currentBills,
-      this.encounters,
-      this.visit
-    );
     this.procedureFields = [
       {
         id: "procedure",
@@ -113,6 +107,7 @@ export class AttendOrderedItemsComponent implements OnInit {
           orderTypeName: this.orderTypeName,
           value: this.status[orderedItem?.concept?.uuid],
           comments: this.comments[orderedItem?.concept?.uuid],
+          patient: this.patient,
           encounters: this.encounters,
         },
       })

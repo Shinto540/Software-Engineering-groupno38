@@ -1,5 +1,9 @@
 import { Component, EventEmitter, Inject, OnInit, Output } from "@angular/core";
-import { MatDialog, MatDialogRef, MAT_DIALOG_DATA } from "@angular/material/dialog";
+import {
+  MatDialog,
+  MatDialogRef,
+  MAT_DIALOG_DATA,
+} from "@angular/material/dialog";
 import { select, Store } from "@ngrx/store";
 import { Observable, of, zip } from "rxjs";
 import { SystemSettingsService } from "src/app/core/services/system-settings.service";
@@ -24,12 +28,12 @@ import { getActiveVisit } from "src/app/store/selectors/visit.selectors";
 import { ConceptsService } from "../../resources/concepts/services/concepts.service";
 import { DrugsService } from "../../resources/drugs/services/drugs.service";
 import { OrdersService } from "../../resources/order/services/orders.service";
-import { flatten, keyBy } from "lodash";
 import { VisitsService } from "../../resources/visits/services";
 import { LocationService } from "src/app/core/services";
 import { map, tap } from "rxjs/operators";
 import { ConceptGet } from "../../resources/openmrs";
 import { SharedConfirmationDialogComponent } from "../../components/shared-confirmation-dialog/shared-confirmation-dialog.component";
+import { ItemPriceService } from "../../services/item-price.service";
 
 @Component({
   selector: "app-dispension-form",
@@ -77,6 +81,10 @@ export class DispensingFormComponent implements OnInit {
   strengthConceptUuid$: Observable<string>;
   useSpecificDrugPrescription$: Observable<any>;
   specificDrugConceptUuid$: Observable<any>;
+  prescribedMedication: any;
+  drugPrice: number;
+  showPrice: boolean;
+  previousVisit$: Observable<any>;
 
   constructor(
     private drugOrderService: DrugOrdersService,
@@ -90,6 +98,7 @@ export class DispensingFormComponent implements OnInit {
     private visitService: VisitsService,
     private locationService: LocationService,
     private conceptService: ConceptsService,
+    private itemPricesService: ItemPriceService,
     @Inject(MAT_DIALOG_DATA)
     public data: {
       drugOrder: any;
@@ -101,6 +110,7 @@ export class DispensingFormComponent implements OnInit {
       visit: Visit;
       location: any;
       encounterUuid: string;
+      drugInstructions: string;
       useGenericPrescription?: any;
       forConsultation: boolean;
     }
@@ -136,6 +146,11 @@ export class DispensingFormComponent implements OnInit {
 
   ngOnInit() {
     this.getVisitByUuid(this.data?.visit?.uuid);
+    this.previousVisit$ = this.visitService
+      .getLastPatientVisit(this.data?.patientUuid, false)
+      .pipe(
+        map((response) => (response?.length > 0 ? response[0]?.visit : {}))
+      );
     this.drugOrder = this.data?.drugOrder;
     this.dispensingLocations$ = this.locationService
       .getLocationsByTagName("Dispensing+Unit")
@@ -187,6 +202,8 @@ export class DispensingFormComponent implements OnInit {
                 type: "warning",
               },
             ];
+          } else {
+            this.prescribedMedication = this.drugOrder?.obs[response]?.value;
           }
         })
       );
@@ -314,7 +331,7 @@ export class DispensingFormComponent implements OnInit {
         })
       );
     this.currentPatient$ = this.store.pipe(select(getCurrentPatient));
-    this.currentLocation$ = this.store.pipe(select(getCurrentLocation));
+    this.currentLocation$ = this.store.pipe(select(getCurrentLocation(false)));
     this.currentVisit$ = this.store.pipe(select(getActiveVisit));
     this.provider$ = this.store.select(getProviderDetails);
 
@@ -330,8 +347,37 @@ export class DispensingFormComponent implements OnInit {
     this.dialogRef.close();
   }
 
+  onGetEnterKeyResponsedFields(
+    keys: any,
+    specificDrugConceptUuid?: string,
+    isEnsured?: boolean
+  ): void {
+    if (keys["quantity"]) {
+      this.onUpdateOrder(null, specificDrugConceptUuid, isEnsured);
+    }
+  }
+
   onChangeDrugQuantity(quantity) {
+    this.showPrice = false;
     this.drugOrder = { ...(this.drugOrder || ({} as any)), quantity };
+    const pricePayload = {
+      visitUuid: this.data.visit.uuid,
+      drugUuid: this.prescribedMedication,
+    };
+    if (
+      this.drugOrder.quantity?.toString().length > 0 &&
+      this.drugOrder.quantity !== 0
+    ) {
+      this.itemPricesService
+        .getItemPrice(pricePayload)
+        .pipe(
+          tap((response: any) => {
+            this.showPrice = true;
+            this.drugPrice = this.drugOrder.quantity * response?.price;
+          })
+        )
+        .subscribe();
+    }
   }
 
   onOrderingDrug(drugOrder: any) {
@@ -391,7 +437,14 @@ export class DispensingFormComponent implements OnInit {
       );
   }
 
-  onUpdateOrder(e: Event, specificDrugConceptUuid?: string) {
+  onUpdateOrder(
+    e: Event,
+    specificDrugConceptUuid?: string,
+    isEnsured?: boolean
+  ) {
+    if (e) {
+      e.stopPropagation();
+    }
     this.dialog
       .open(SharedConfirmationDialogComponent, {
         width: "20%",
@@ -402,7 +455,6 @@ export class DispensingFormComponent implements OnInit {
       .afterClosed()
       .subscribe((shouldConfirm) => {
         if (shouldConfirm) {
-          e.stopPropagation();
           this.savingOrder = true;
           this.savingOrderSuccess = false;
           this.savingError = null;
@@ -413,7 +465,7 @@ export class DispensingFormComponent implements OnInit {
             .getDrug(order?.obs[specificDrugConceptUuid]?.value)
             .subscribe((response) => {
               if (response) {
-                const formattedOrder = {
+                let formattedOrder = {
                   ...order,
                   orderType: "iCARESTS-PRES-1111-1111-525400e4297f",
                   drug: {
@@ -441,6 +493,14 @@ export class DispensingFormComponent implements OnInit {
                     ? order?.patientUuid
                     : this.data?.patientUuid,
                 };
+
+                if (isEnsured) {
+                  formattedOrder = {
+                    ...formattedOrder,
+                    status: "EMPTY",
+                    remarks: "Control status",
+                  };
+                }
                 // console.log("this.data?.drugOrder", this.data?.drugOrder);
                 this.drugOrderService
                   .saveDrugOrder(

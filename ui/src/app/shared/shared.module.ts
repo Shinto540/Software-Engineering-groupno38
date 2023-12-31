@@ -14,6 +14,11 @@ import { FormatIsoStrDateForDisplayPipe } from "./pipes/format-iso-str-date-for-
 import { FilterDiagnosesPipe } from "./pipes/filter-diagnoses.pipe";
 import { FilterItemsBySelectionsPipe } from "./pipes/filter-items-by-selections.pipe";
 import { HttpClientModule } from "@angular/common/http";
+import { SearchTestDetailsPipe } from "./pipes/search-test-details.pipe";
+import { FormatLabelCharCountDisplayPipe } from "./pipes/format-label-char-count-display.pipe";
+import { sharedStoreModals } from "./store-modals";
+import { sharedStorePages } from "./store-pages";
+import { sharedStoreComponents } from "./store-components";
 @NgModule({
   imports: [CommonModule, ...materialModules, ...modules],
   exports: [
@@ -22,13 +27,23 @@ import { HttpClientModule } from "@angular/common/http";
     ...materialModules,
     ...modules,
     ...components,
+    ...sharedStorePages,
+    ...sharedStoreComponents,
+    ...sharedStoreModals,
     ...sharedPipes,
     ...sharedDialogs,
     HttpClientModule,
   ],
-  entryComponents: [...sharedEntryComponents, ...sharedDialogs],
+  entryComponents: [
+    ...sharedEntryComponents,
+    ...sharedDialogs,
+    ...sharedStoreModals,
+  ],
   declarations: [
     ...components,
+    ...sharedStorePages,
+    ...sharedStoreComponents,
+    ...sharedStoreModals,
     ...sharedDialogs,
     ...sharedPipes,
     FilterFormsByServiceProvidedPipe,
@@ -37,6 +52,8 @@ import { HttpClientModule } from "@angular/common/http";
     FormatIsoStrDateForDisplayPipe,
     FilterDiagnosesPipe,
     FilterItemsBySelectionsPipe,
+    SearchTestDetailsPipe,
+    FormatLabelCharCountDisplayPipe,
   ],
   providers: [...sharedServices],
 })

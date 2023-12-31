@@ -30,21 +30,66 @@
       mode="indeterminate"
     ></mat-progress-bar>
     <app-capture-form-data
-      *ngIf="currentCustomForm"
+      *ngIf="
+        currentCustomForm &&
+        ((dependedFormHasData &&
+          clinicConfigurations?.forms[currentCustomForm?.uuid].dependsOn
+            ?.length > 0) ||
+          !clinicConfigurations?.forms ||
+          !clinicConfigurations?.forms[currentCustomForm?.uuid] ||
+          !clinicConfigurations?.forms[currentCustomForm?.uuid]?.dependsOn ||
+          clinicConfigurations?.forms[currentCustomForm?.uuid]?.dependsOn
+            ?.length == 0)
+      "
+      [observations]="useFilledObsData ? clinicalObservations : null"
       [form]="currentCustomForm"
       [visit]="visit"
       [patient]="patient"
-      [observations]="clinicalObservations"
       (formDataUpdate)="onFormUpdate($event)"
     ></app-capture-form-data>
+    <div
+      class="alert alert-warning"
+      role="alert"
+      *ngIf="!dependedFormHasData && showMessage"
+    >
+      Forms
+      <span
+        *ngFor="
+          let form of clinicConfigurations?.forms[currentCustomForm?.uuid]
+            .dependsOn
+        "
+      >
+        <b>
+          {{ form?.name }}
+        </b>
+      </span>
+      should be filled first.
+      <!-- <button
+        type="button"
+        class="close"
+        data-dismiss="alert"
+        aria-label="Close"
+        (click)="onCloseMessage($event)"
+      >
+        <span aria-hidden="true">&times;</span>
+      </button> -->
+    </div>
 
     <!-- buttons -->
     <div class="d-flex justify-content-end">
       <button
+        [disabled]="!atLeastOneFieldHasData"
+        mat-stroked-button
+        (click)="onClear($event, currentCustomForm)"
+      >
+        Clear
+      </button>
+      <button
         mat-flat-button
         (click)="onConfirm($event, visit)"
         color="primary"
-        [disabled]="params?.savingObservations"
+        [disabled]="params?.savingObservations || !atLeastOneFieldHasData"
+        class="ml-2"
       >
         <mat-spinner
           color="primary"

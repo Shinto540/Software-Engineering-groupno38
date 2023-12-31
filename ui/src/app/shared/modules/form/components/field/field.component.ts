@@ -1,4 +1,11 @@
-import { Component, EventEmitter, Input, OnInit, Output } from "@angular/core";
+import {
+  AfterViewInit,
+  Component,
+  EventEmitter,
+  Input,
+  OnInit,
+  Output,
+} from "@angular/core";
 import { FormGroup } from "@angular/forms";
 import { MomentDateAdapter } from "@angular/material-moment-adapter";
 import {
@@ -25,7 +32,7 @@ import { FormService } from "../../services";
     { provide: MAT_DATE_FORMATS, useValue: DATE_FORMATS_DD_MM_YYYY },
   ],
 })
-export class FieldComponent {
+export class FieldComponent implements AfterViewInit {
   @Input() field: Field<string>;
   @Input() isReport: boolean;
   @Input() value: any;
@@ -39,10 +46,22 @@ export class FieldComponent {
 
   @Output() fieldUpdate: EventEmitter<FormGroup> =
     new EventEmitter<FormGroup>();
+  @Output() enterKeyPressedFields: EventEmitter<any> = new EventEmitter<any>();
 
   @Output() fileFieldUpdate: EventEmitter<any> = new EventEmitter<any>();
 
   ngAfterViewInit() {
+    if (typeof this.field?.value === "object") {
+      this.value =
+        this.field?.value && (this.field?.value as any)?.length > 0
+          ? (this.field?.value as any[])?.map((val) => {
+              return {
+                ...val,
+                value: val?.value ? val?.value : val?.uuid,
+              };
+            })
+          : null;
+    }
     if (
       this.field?.searchTerm ||
       this.field?.source ||
@@ -62,12 +81,16 @@ export class FieldComponent {
           v:
             this.field?.searchControlType === "concept"
               ? "custom:(uuid,display,datatype,conceptClass,mappings)"
+              : this.field?.searchControlType === "residenceLocation"
+              ? "custom:(uuid,display,parentLocation:(uuid,display,parentLocation:(uuid,display,parentLocation:(uuid,display,parentLocation:(uuid,display)))))"
               : "custom:(uuid,display)",
         },
         this.field?.searchControlType,
         this.field?.filteringItems,
         this.field
       );
+    } else if (this.field?.options?.length > 0) {
+      this.members$ = of(this.field?.options);
     }
     this.fieldUpdate.emit(this.form);
   }
@@ -112,15 +135,27 @@ export class FieldComponent {
   }
 
   get isCommonField(): boolean {
-    return !this.isCheckBoxButton && !this.isDate && !this.isBoolean;
+    return (
+      this.field?.controlType !== "checkbox" &&
+      !this.isDate &&
+      !this.isBoolean &&
+      !this.isCheckBoxButton
+    );
   }
 
   get fieldId(): string {
     return this.field?.id;
   }
 
-  onFieldUpdate(): void {
+  onFieldUpdate(event?: KeyboardEvent): void {
     this.fieldUpdate.emit(this.form);
+  }
+
+  onListenKeyEvent(event?: KeyboardEvent): void {
+    if (event && event.code === "Enter") {
+      this.enterKeyPressedFields.emit(this.field?.key);
+    } else {
+    }
   }
 
   fileChangeEvent(event, field): void {
@@ -131,7 +166,6 @@ export class FieldComponent {
 
   updateFieldOnDemand(objectToUpdate): void {
     this.form.patchValue(objectToUpdate);
-    const theKey = Object.keys(objectToUpdate);
     this.form.setValue({ dob: new Date() });
     this.fieldUpdate.emit(this.form);
   }
@@ -143,9 +177,22 @@ export class FieldComponent {
     return matchedOption ? matchedOption?.value : "";
   }
 
+  get getOptionValueLabel(): any {
+    const matchedOption = (this.field.options.filter(
+      (option) => option?.key === this.value
+    ) || [])[0];
+    return matchedOption ? matchedOption?.label : "";
+  }
+
   searchItem(event: any, field?: any): void {
-    event.stopPropagation();
-    const searchingText = event.target.value;
+    // event.stopPropagation();
+    const searchingText = (event.target as HTMLInputElement).value;
+    if (!searchingText) {
+      let objectToUpdate = {};
+      objectToUpdate[field?.key] = null;
+      this.form.patchValue(objectToUpdate);
+      this.fieldUpdate.emit(this.form);
+    }
     const parameters = {
       q: searchingText,
       limit: 50,
@@ -162,6 +209,7 @@ export class FieldComponent {
           ? "custom:(uuid,display,datatype,conceptClass,mappings)"
           : "custom:(uuid,display)",
     };
+    // console.log("field", field);
     this.members$ = this.formService.searchItem(
       parameters,
       this.field?.searchControlType,
@@ -170,13 +218,43 @@ export class FieldComponent {
     );
   }
 
-  getSelectedItemFromOption(event: Event, item, field): void {
+  onClearValue(event: any, field: any): void {
     event.stopPropagation();
-    const value = item?.isDrug
-      ? item?.formattedKey
-      : item?.uuid
-      ? item?.uuid
-      : item?.id;
+    let objectToUpdate: any = {};
+    objectToUpdate[field?.key] = null;
+    this.form.patchValue(objectToUpdate);
+    this.fieldUpdate.emit(this.form);
+  }
+
+  searchItemFromOptions(event: any, field: any): void {
+    const searchingText = event.target.value;
+    this.members$ = of(
+      field?.options?.filter(
+        (option) =>
+          option?.label?.toLowerCase()?.indexOf(searchingText?.toLowerCase()) >
+          -1
+      ) || []
+    );
+    let objectToUpdate: any = {};
+    if (!searchingText || searchingText?.length === 0) {
+      objectToUpdate[field?.key] = null;
+      this.form.patchValue(objectToUpdate);
+      this.fieldUpdate.emit(this.form);
+    }
+  }
+
+  getSelectedItemFromOption(event: Event, item: any, field: any): void {
+    event.stopPropagation();
+    const value =
+      field?.searchControlType == "person"
+        ? item?.display
+        : item?.isDrug
+        ? item?.formattedKey
+        : item?.uuid
+        ? item?.uuid
+        : item?.id
+        ? item?.id
+        : item?.value;
     let objectToUpdate = {};
     objectToUpdate[field?.key] =
       field?.searchControlType === "drugStock"
@@ -189,8 +267,16 @@ export class FieldComponent {
     this.fieldUpdate.emit(this.form);
   }
 
-  getStockStatus(option) {
+  getStockStatus(option: any): any {
     const optionName = option?.display ? option?.display : option?.name;
     return optionName.includes("Available, Location") ? true : false;
+  }
+
+  displayLabelFunc(value?: any): string {
+    return value
+      ? this.field?.options?.find(
+          (option) => option?.value === (value?.value ? value?.value : value)
+        )?.label
+      : undefined;
   }
 }

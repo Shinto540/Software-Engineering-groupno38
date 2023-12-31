@@ -117,7 +117,7 @@ export class SharedPatientConsultationComponent implements OnInit {
     this.loadingForms$ = this.store.pipe(select(getFormsLoadingState));
     this.currentPatient$ = this.store.pipe(select(getCurrentPatient));
     this.loadingVisit$ = this.store.pipe(select(getVisitLoadingState));
-    this.currentLocation$ = this.store.pipe(select(getCurrentLocation));
+    this.currentLocation$ = this.store.pipe(select(getCurrentLocation(false)));
     this.activeVisit$ = this.store.pipe(select(getConsultationActiveVisit));
 
     this.savingObservations$ = this.store.pipe(
@@ -129,12 +129,6 @@ export class SharedPatientConsultationComponent implements OnInit {
     );
 
     this.store.dispatch(loadOrderTypes());
-
-    this.forms$ = this.store.select(getCustomOpenMRSFormsByIds, {
-      formUUids: map(this.applicableForms, (form) => {
-        return form?.id;
-      }),
-    });
     this.billableItems$ = this.billableItemsService.getItemsWithPrices();
   }
 

@@ -1,12 +1,4 @@
-import {
-  AfterViewInit,
-  Component,
-  EventEmitter,
-  Input,
-  OnChanges,
-  OnInit,
-  Output,
-} from "@angular/core";
+import { Component, EventEmitter, Input, OnInit, Output } from "@angular/core";
 import { Store } from "@ngrx/store";
 import { Observable } from "rxjs";
 import { Location } from "src/app/core/models";
@@ -19,7 +11,11 @@ import { VisitObject } from "src/app/shared/resources/visits/models/visit-object
 import { AppState } from "src/app/store/reducers";
 import { getSavingObservationStatus } from "src/app/store/selectors/observation.selectors";
 import { ICARE_CONFIG } from "../../resources/config";
-import { OrdersService } from "../../resources/order/services/orders.service";
+import { ObservationService } from "../../resources/observation/services";
+import { identifyConceptsFromFormattedForm } from "../../helpers/identify-concepts-from-formatted-form.helper";
+import { indexOf, keyBy, orderBy } from "lodash";
+
+import * as moment from "moment";
 
 @Component({
   selector: "app-clinical-notes",
@@ -37,6 +33,8 @@ export class ClinicalNotesComponent implements OnInit {
   @Input() selectedForm: any;
   @Input() shouldUseOwnFormSelection: boolean;
   @Input() provider: any;
+  @Input() clinicConfigurations: any;
+  @Input() forms: any[];
   savingObservations$: Observable<boolean>;
   ordersUpdates$: Observable<any>;
 
@@ -46,29 +44,176 @@ export class ClinicalNotesComponent implements OnInit {
   currentCustomFormName: string;
   formData: any;
   searchingText: string;
+  atLeastOneFieldHasData: boolean = false;
+  currentFormHasRequiredData: boolean = false;
+  dependedFormHasData: boolean = false;
   @Output() saveObservations = new EventEmitter();
-  @Input() forms: any[];
   @Output() currentSelectedFormForEmitting = new EventEmitter<any>();
   @Output() updateConsultationOrder = new EventEmitter<any>();
+  showMessage: boolean = false;
+  @Output() currentFormDetails: EventEmitter<any> = new EventEmitter<any>();
+  useFilledObsData: boolean = true;
   constructor(
     private store: Store<AppState>,
-    private ordersService: OrdersService
+    private observationService: ObservationService
   ) {}
 
   ngOnInit(): void {
-    this.clinicalForms = this.clinicalForm?.setMembers || [];
-    // this.selectedForm = this.forms[0];
+    // console.log(this.clinicConfigurations);
+    this.clinicConfigurations = {
+      ...this.clinicConfigurations,
+      forms: keyBy(
+        Object.keys(this.clinicConfigurations?.forms)
+          .filter(
+            (key) =>
+              (this.forms?.filter((form) => form?.uuid == key) || [])?.length >
+              0
+          )
+          .map((key) => this.clinicConfigurations?.forms[key]),
+        "uuid"
+      ),
+    };
+    this.selectedForm = !this.selectedForm
+      ? this.clinicalForm
+      : this.selectedForm;
     this.formData = {};
-    this.currentForm = this.clinicalForms[0];
-    this.currentCustomForm = this.selectedForm
-      ? this.selectedForm
-      : this.forms[0];
+    this.currentCustomForm = this.selectedForm;
     this.currentSelectedFormForEmitting.emit(this.currentCustomForm);
     this.currentCustomFormName = this.forms[0]?.name;
     this.savingObservations$ = this.store.select(getSavingObservationStatus);
+    const latestObservations = Object.keys(this.clinicalObservations).map(
+      (key) => this.clinicalObservations[key]?.latest
+    );
+    const concepts = identifyConceptsFromFormattedForm(this.currentCustomForm);
+    // this.currentFormHasRequiredData =
+    //   (
+    //     Object.keys(this.clinicalObservations).filter(
+    //       (key) =>
+    //         indexOf(
+    //           concepts?.map((concept) => concept?.uuid),
+    //           key,
+    //           0
+    //         ) > -1
+    //     ) || []
+    //   ).length > 0;
+    const latestObsForCurrentForm =
+      latestObservations?.filter(
+        (obs) => keyBy(concepts, "uuid")[obs?.conceptUuid]
+      ) || [];
+    if (latestObsForCurrentForm?.length > 0) {
+      const latestObsTime = (orderBy(
+        latestObsForCurrentForm?.map((obs) => {
+          return {
+            ...obs,
+            observationDatetime: new Date(obs?.observationDatetime),
+          };
+        }),
+        ["observationDatetime"]["desc"]
+      ) || [])[0]?.observationDatetime;
+
+      var duration = moment.duration(
+        moment(new Date()).diff(moment(latestObsTime))
+      );
+      // TODO: Add support to use configured time for the 2 hrs constant
+      this.useFilledObsData = duration.asHours() > 2 ? false : true;
+    }
+
+    this.dependedFormHasData = this.evaluateFormDependency(
+      this.clinicConfigurations,
+      this.currentCustomForm
+    );
+
+    // Identify form with dependants
+    if (Object.keys(this.clinicConfigurations?.forms)?.length > 0) {
+      const formsWithDependants = (
+        Object.keys(this.clinicConfigurations?.forms)?.filter(
+          (key) => this.clinicConfigurations?.forms[key]?.dependants?.length > 0
+        ) || []
+      )?.map((formUuid) => {
+        return {
+          ...(this.forms?.filter((form) => form?.uuid === formUuid) || [])[0],
+          ...this.clinicConfigurations?.forms[formUuid],
+        };
+      });
+      formsWithDependants
+        ?.filter(
+          (form) =>
+            (
+              form?.dependants?.filter(
+                (dependant) => dependant?.type === "section"
+              ) || []
+            )?.length > 0
+        )
+        ?.forEach((form) => {
+          const concepts = identifyConceptsFromFormattedForm(form);
+          const currentFormHasRequiredData =
+            (
+              Object.keys(this.clinicalObservations).filter(
+                (key) =>
+                  indexOf(
+                    concepts?.map((concept) => concept?.uuid),
+                    key,
+                    0
+                  ) > -1
+              ) || []
+            ).length > 0;
+          this.currentFormDetails.emit({
+            requiredFormsHasData: currentFormHasRequiredData,
+            configs: form,
+          });
+        });
+      // console.log("formsWithDependants", formsWithDependants);
+    }
+
+    if (
+      this.clinicConfigurations?.forms &&
+      this.clinicConfigurations?.forms[this.currentCustomForm?.uuid] &&
+      this.clinicConfigurations?.forms[this.currentCustomForm?.uuid]?.dependsOn
+        ?.length > 0 &&
+      this.clinicConfigurations?.forms[
+        this.currentCustomForm?.uuid
+      ]?.dependsOn?.filter((depended) => depended?.type === "form")
+    ) {
+      this.showMessage = true;
+    }
   }
 
-  onSetClinicalForm(e, form) {
+  onCloseMessage(event: Event): void {
+    event.stopPropagation();
+    this.showMessage = false;
+  }
+
+  evaluateFormDependency(configs: any, form: any): boolean {
+    let dependedFormHasData = false;
+    const formConfigs = configs?.forms[form?.uuid];
+    const dependedForms = formConfigs
+      ? configs?.forms[form?.uuid]?.dependsOn?.filter(
+          (depended) => depended?.type === "form"
+        )
+      : null;
+    if (dependedForms?.length > 0) {
+      const dependedForm = (this.forms?.filter(
+        (form) => form?.uuid === dependedForms[0]?.uuid
+      ) || [])[0];
+
+      const concepts = identifyConceptsFromFormattedForm(dependedForm);
+
+      dependedFormHasData =
+        (
+          Object.keys(this.clinicalObservations).filter(
+            (key) =>
+              indexOf(
+                concepts?.map((concept) => concept?.uuid),
+                key,
+                0
+              ) > -1
+          ) || []
+        ).length > 0;
+    }
+    return dependedFormHasData;
+  }
+
+  onSetClinicalForm(e: Event, form: any): void {
     e.stopPropagation();
     this.currentCustomForm = form;
     this.currentCustomFormName = form?.name;
@@ -85,73 +230,70 @@ export class ClinicalNotesComponent implements OnInit {
       ...(this.formData[this.currentCustomForm.id] || {}),
       ...(isRawValue ? formValue : formValue.getValues()),
     };
+    this.atLeastOneFieldHasData =
+      (
+        Object.keys(this.formData[this.currentCustomForm.id])
+          ?.map((key) => this.formData[this.currentCustomForm.id][key]?.value)
+          ?.filter((value) => value) || []
+      )?.length > 0;
   }
 
   onConfirm(e: Event, visit: any): void {
     e.stopPropagation();
     this.updateConsultationOrder.emit();
-    // if (!visit.consultationStarted) {
-    //   const orders = [
-    //     {
-    //       uuid: visit.consultationStatusOrder?.uuid,
-    //       accessionNumber: visit.consultationStatusOrder?.orderNumber,
-    //       fulfillerStatus: "RECEIVED",
-    //       encounter: visit.consultationStatusOrder?.encounter?.uuid,
-    //     },
-    //   ];
-    //   this.ordersUpdates$ = this.ordersService.updateOrdersViaEncounter(orders);
-
-      // const consultationEncounter = {
-      //   encounterDatetime: new Date(),
-      //   patient: this.patient.personUuid,
-      //   encounterType: this.consultationEncounterType,
-      //   location: this.location.uuid,
-      //   encounterProviders: [
-      //     {
-      //       provider: this.provider.uuid,
-      //       encounterRole: ICARE_CONFIG?.encounterRole?.uuid,
-      //     },
-      //   ],
-      //   visit: visit.uuid,
-      //   orders: [
-      //     {
-      //       orderType: this.consultationOrderType,
-      //       action: "NEW",
-      //       urgency: "ROUTINE",
-      //       careSetting: !visit?.isAdmitted
-      //         ? "OUTPATIENT"
-      //         : "INPATIENT",
-      //       patient: this.patient.personUuid,
-      //       concept: visit.consultationStatusOrder.concept.uuid,
-      //       orderer: this.provider?.uuid,
-      //       type: "order",
-      //       fulfillerStatus: "RECEIVED",
-      //     },
-      //   ],
-      // };
-
-      // this.ordersService
-      //   .createOrdersViaCreatingEncounter(consultationEncounter)
-      //   .subscribe({
-      //     next: (encounter) => {
-      //       if(!encounter?.error){
-      //         return encounter;
-      //       };
-      //       return encounter?.error;
-      //     }
-      //   });
-      // }
-    this.saveObservations.emit(
-      getObservationsFromForm(
-        this.formData[this.currentCustomForm?.id],
-        this.patient?.personUuid,
-        this.location?.id,
-        this.visit?.encounterUuid
-          ? this.visit?.encounterUuid
-          : JSON.parse(localStorage.getItem("patientConsultation"))[
-              "encounterUuid"
-            ]
-      )
+    let obs = getObservationsFromForm(
+      this.formData[this.currentCustomForm?.id],
+      this.patient?.personUuid,
+      this.location?.id,
+      this.visit?.encounterUuid
+        ? this.visit?.encounterUuid
+        : JSON.parse(localStorage.getItem("patientConsultation"))[
+            "encounterUuid"
+          ]
     );
+    let encounterObject = {
+      patient: this.patient?.id,
+      encounterType: this.currentCustomForm?.encounterType?.uuid,
+      location: this.location?.uuid,
+      encounterProviders: [
+        {
+          provider: this.provider?.uuid,
+          encounterRole: ICARE_CONFIG?.encounterRole?.uuid,
+        },
+      ],
+      visit: this.visit?.uuid,
+      obs: obs,
+      form: {
+        uuid: this.currentCustomForm?.uuid,
+      },
+    };
+
+    this.observationService
+      .saveEncounterWithObsDetails(encounterObject)
+      .subscribe((res) => {
+        if (res) {
+          this.saveObservations.emit();
+        }
+      });
+    // this.saveObservations.emit(
+    //   getObservationsFromForm(
+    //     this.formData[this.currentCustomForm?.id],
+    //     this.patient?.personUuid,
+    //     this.location?.id,
+    //     this.visit?.encounterUuid
+    //       ? this.visit?.encounterUuid
+    //       : JSON.parse(localStorage.getItem("patientConsultation"))[
+    //           "encounterUuid"
+    //         ]
+    //   )
+    // );
+  }
+
+  onClear(event: Event, form: any): void {
+    event.stopPropagation();
+    this.currentCustomForm = null;
+    setTimeout(() => {
+      this.currentCustomForm = form;
+    }, 20);
   }
 }

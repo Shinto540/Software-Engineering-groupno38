@@ -15,7 +15,12 @@ export class FieldControlService {
         group[field.key] = field.required
           ? new FormControl(
               {
-                value: fieldData?.value || field.value || "",
+                value:
+                  (!fieldData?.value?.uuid
+                    ? fieldData?.value
+                    : fieldData?.value?.uuid) ||
+                  field.value ||
+                  "",
                 disabled: field?.disabled,
               },
               [
@@ -28,19 +33,25 @@ export class FieldControlService {
                   : null,
               ].filter((validator) => validator)
             )
-          : new FormControl({
-              value: fieldData?.value || field.value || "",
-              disabled: field?.disabled,
-            },
+          : new FormControl(
+              {
+                value:
+                  (!fieldData?.value?.uuid
+                    ? fieldData?.value
+                    : fieldData?.value?.uuid) ||
+                  field.value ||
+                  "",
+                disabled: field?.disabled,
+              },
 
-            [
-              field?.controlType === "phoneNumber"
-                ? Validators.minLength(10)
-                : null,
-              field?.controlType === "phoneNumber"
-                ? Validators.maxLength(10)
-                : null,
-            ].filter((validator) => validator)
+              [
+                field?.controlType === "phoneNumber"
+                  ? Validators.minLength(10)
+                  : null,
+                field?.controlType === "phoneNumber"
+                  ? Validators.maxLength(10)
+                  : null,
+              ].filter((validator) => validator)
             );
       }
     });

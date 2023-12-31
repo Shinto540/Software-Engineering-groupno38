@@ -23,10 +23,11 @@ import { SampleObject } from "../../resources/models";
 import { getPatientPendingBillStatus } from "src/app/store/selectors/bill.selectors";
 import { collectSample } from "src/app/store/actions";
 import { SamplesService } from "src/app/shared/services/samples.service";
-import { BarCodeModalComponent } from "../../modules/sample-acceptance-and-results/components/bar-code-modal/bar-code-modal.component";
+import { BarCodeModalComponent } from "../../../../shared/dialogs/bar-code-modal/bar-code-modal.component";
 import { formatDateToYYMMDD } from "src/app/shared/helpers/format-date.helper";
 import { MatDialog } from "@angular/material/dialog";
 import { LabOrdersService } from "../../resources/services/lab-orders.service";
+import { OrdersService } from "src/app/shared/resources/order/services/orders.service";
 
 @Component({
   selector: "app-samples-to-collect",
@@ -64,7 +65,8 @@ export class SamplesToCollectComponent implements OnInit, OnChanges {
     private store: Store<AppState>,
     private sampleService: SamplesService,
     private dialog: MatDialog,
-    private labOrdersService: LabOrdersService
+    private labOrdersService: LabOrdersService,
+    private ordersService: OrdersService
   ) {}
 
   ngOnInit(): void {}
@@ -77,6 +79,7 @@ export class SamplesToCollectComponent implements OnInit, OnChanges {
     _.each(this.payments, (payment) => {
       _.each(payment?.items, (item) => {
         this.paidItems[item?.name] = item;
+        this.paidItems[item?.paymentItem?.order?.uuid] = item;
       });
     });
 
@@ -106,7 +109,12 @@ export class SamplesToCollectComponent implements OnInit, OnChanges {
     this.labSamplesLoadingState$ = this.store.select(getLabSamplesLoadingState);
   }
 
-  saveAsSample(specimenType, count, patient) {
+  saveAsSample(
+    specimenType: any,
+    count: any,
+    patient: any,
+    department?: any
+  ): void {
     const identifierElement: any = document.getElementById(
       specimenType.specimenSourceUuid + count
     );
@@ -130,12 +138,14 @@ export class SamplesToCollectComponent implements OnInit, OnChanges {
       },
       label: sampleIdentifier,
       concept: {
+        uuid: specimenType?.departmentUuid,
+      },
+      specimenSource: {
         uuid: specimenType?.specimenSourceUuid,
       },
       orders: this.getOrders(specimenType?.orders),
     };
 
-    // JESSE TODO get uiser uid and sample uid
     const priorityData =
       this.samplePriority["sampleuid"] &&
       this.samplePriority["sampleuid"] == "HIGH"
@@ -148,6 +158,7 @@ export class SamplesToCollectComponent implements OnInit, OnChanges {
             },
             remarks: "high priority",
             status: "HIGH",
+            category: "PRIORITY",
           }
         : null;
 
@@ -200,6 +211,22 @@ export class SamplesToCollectComponent implements OnInit, OnChanges {
 
   generateSampleId(e, sample, count, patient) {
     e.stopPropagation();
+    //52a447d3-a64a-11e3-9aeb-50e549534c5e Laboratory Order Type Uuid
+    const orders = sample?.orders?.map((order) => {
+      return {
+        uuid: order.uuid,
+        fulfillerStatus: "RECEIVED",
+        encounter: order?.encounterUuid,
+      };
+    });
+    this.ordersService.updateOrdersViaEncounter(orders).subscribe({
+      next: (order) => {
+        return order;
+      },
+      error: (error) => {
+        return error;
+      },
+    });
     this.sampleService.getSampleLabel().subscribe((label) => {
       if (label) {
         const labelSection =

@@ -1,32 +1,43 @@
 <div
   *ngIf="{
-    allSamples: allSamples$ | async,
     samplesLoadedState: samplesLoadedState$ | async,
     privileges: privileges$ | async,
     labConfigs: labConfigs$ | async,
-    codedSampleRejectionReasons: codedSampleRejectionReasons$ | async
+    codedSampleRejectionReasons: codedSampleRejectionReasons$ | async,
+    barcodeSettings: barcodeSettings$ | async
   } as sampleParams"
 >
   <mat-progress-bar
-    *ngIf="
-      !sampleParams?.samplesLoadedState ||
-      !sampleParams?.labConfigs ||
-      !sampleParams?.allSamples
-    "
+    *ngIf="!sampleParams?.labConfigs"
     mode="indeterminate"
   ></mat-progress-bar>
 
-  <div
-    *ngIf="
-      sampleParams?.samplesLoadedState &&
-      sampleParams?.allSamples &&
-      sampleParams?.labConfigs
-    "
-  >
-    <div class="sample-dashboard-summary">
-      <app-samples-summary-dashboard></app-samples-summary-dashboard>
+  <div>
+    <div class="p-2" *ngIf="sampleParams?.labConfigs">
+      <div class="mb-2">
+        <app-shared-samples-summary-dashboard
+          [datesParams]="datesParameters"
+          [dashboardSingleValueDataSetsReferenceKey]="
+            'iCare.laboratory.sampleTracking.dashboard.settings.samples.singleValue'
+          "
+        ></app-shared-samples-summary-dashboard>
+      </div>
+      <app-shared-samples-list
+        *ngIf="sampleParams?.barcodeSettings"
+        [tabType]="'sample-tracking'"
+        [LISConfigurations]="LISConfigurations"
+        [labSamplesDepartments]="labSamplesDepartments"
+        [hasStatus]="'YES'"
+        [showLegend]="true"
+        [category]="'COLLECTED'"
+        [datesParameters]="datesParameters"
+        [excludeAllocations]="true"
+        [sampleTypes]="sampleTypes"
+        [codedSampleRejectionReasons]="codedSampleRejectionReasons"
+        [barcodeSettings]="sampleParams?.barcodeSettings"
+      ></app-shared-samples-list>
     </div>
-    <div class="filtering-div">
+    <!-- <div class="filtering-div">
       <mat-form-field class="w-50">
         <mat-label>Search</mat-label>
         <mat-icon matPrefix>search</mat-icon
@@ -111,7 +122,7 @@
           <tr>
             <th rowspan="2">SN</th>
             <th rowspan="2">Department</th>
-            <th rowspan="2" *ngIf="!LISConfigurations?.isLIS">
+            <th rowspan="2">
               Sample / Specimen
             </th>
             <th rowspan="2">Sample ID</th>
@@ -176,7 +187,7 @@
                   {{ sample?.department?.departmentName }}
                 </td>
                 <td
-                  *ngIf="orderCount == 0 && !LISConfigurations?.isLIS"
+                  *ngIf="orderCount == 0"
                   [attr.rowspan]="sample?.orders?.length"
                 >
                   {{ sample?.specimen?.name }}
@@ -221,7 +232,7 @@
                 >
                   {{
                     sample?.receivedOnStatus?.timestamp
-                      ? (sample?.receivedOnStatus?.timestamp | date: "medium")
+                      ? (sample?.receivedOnStatus?.remarks | date: "medium")
                       : ""
                   }}
                 </td>
@@ -265,11 +276,41 @@
                   *ngIf="orderCount == 0"
                   [attr.rowspan]="sample?.orders?.length"
                 >
-                  <button mat-button class="colored-button " (click)="onPrintBarCodes($event, sample)">
-                    Print Barcodes
-                  </button>
+
+                   <button
+                        mat-flat-button
+                        color="primary"
+                        (click)="onToggleViewSampleDetails($event, sample)"
+                      >
+                        <mat-icon *ngIf="!samplesToViewMoreDetails[sample?.id]"
+                          >expand_more</mat-icon
+                        >
+                        <mat-icon *ngIf="samplesToViewMoreDetails[sample?.id]"
+                          >expand_less</mat-icon
+                        >
+                        {{
+                          !samplesToViewMoreDetails[sample?.id]
+                            ? "View"
+                            : "Hide"
+                        }}
+                        Details
+                      </button>
                 </td>
               </tr>
+              <tr *ngIf="samplesToViewMoreDetails[sample?.id]">
+                  <td colspan="11">
+                    <app-shared-sample-details
+                      [sample]="sample"
+                    ></app-shared-sample-details>
+                  </td>
+                  <td>
+                    <div class="d-flex justify-content-center">
+                      <button mat-button class="colored-button " (click)="onPrintBarCodes($event, sample)">
+                      Print Barcodes
+                    </button>
+                    </div>
+                  </td>
+                </tr>
             </ng-container>
           </ng-container>
           <ng-container *ngIf="sampleParams?.allSamples?.length == 0">
@@ -279,6 +320,6 @@
           </ng-container>
         </tbody>
       </table>
-    </div>
+    </div> -->
   </div>
 </div>

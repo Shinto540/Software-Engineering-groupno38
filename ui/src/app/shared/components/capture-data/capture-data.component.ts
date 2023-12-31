@@ -1,8 +1,7 @@
 import { Component, EventEmitter, Input, OnInit, Output } from "@angular/core";
-import { select, Store } from "@ngrx/store";
+import { Store } from "@ngrx/store";
 import { Observable } from "rxjs";
 import { FormValue } from "src/app/shared/modules/form/models/form-value.model";
-import { OpenmrsHttpClientService } from "src/app/shared/modules/openmrs-http-client/services/openmrs-http-client.service";
 import { ICARE_CONFIG } from "src/app/shared/resources/config";
 import { Patient } from "src/app/shared/resources/patient/models/patient.model";
 import { VisitObject } from "src/app/shared/resources/visits/models/visit-object.model";
@@ -33,17 +32,16 @@ export class CaptureDataComponent implements OnInit {
   @Input() useSideBar: boolean;
 
   @Output() saveObservations = new EventEmitter();
+  @Output() exitAfterSave: EventEmitter<boolean> = new EventEmitter<boolean>();
   obsSavingState$: Observable<boolean>;
   @Input() savingObservations: boolean;
+  @Input() saveAndExitPath: string;
   currentCustomForm: any;
   obsSaved: boolean = false;
 
   formData: any;
   encounterData: any;
-  constructor(
-    private store: Store<AppState>,
-    private service: OpenmrsHttpClientService
-  ) {}
+  constructor(private store: Store<AppState>) {}
 
   ngOnInit(): void {
     this.currentCustomForm = this.forms[0];
@@ -54,8 +52,11 @@ export class CaptureDataComponent implements OnInit {
     this.encounterData = {
       visit: this.visit?.uuid,
       patient: this.patient?.id,
-      encounterType: ICARE_CONFIG.vitals.encounterTypeUuid,
+      encounterType: ICARE_CONFIG?.consultation?.encounterTypeUuid,
       location: this.location?.uuid,
+      form: {
+        uuid: this.currentCustomForm?.uuid,
+      },
       obs: [],
       orders: [],
       encounterProviders: [
@@ -92,7 +93,7 @@ export class CaptureDataComponent implements OnInit {
     };
   }
 
-  onSave(e): void {
+  onSave(e: Event, saveAndExit?: boolean): void {
     e.stopPropagation();
     this.obsSaved = true;
     const obs = _.map(Object.keys(this.obsDetails), (key) => {
@@ -100,7 +101,18 @@ export class CaptureDataComponent implements OnInit {
     });
     this.encounterData.obs =
       obs.filter((observation) => observation?.value != "") || [];
+
     this.saveObservations.emit(this.encounterData);
-    
+    if (saveAndExit) {
+      this.exitAfterSave.emit(saveAndExit);
+    }
+  }
+
+  onClear(event: Event, form: any): void {
+    event.stopPropagation();
+    this.currentCustomForm = null;
+    setTimeout(() => {
+      this.currentCustomForm = form;
+    }, 20);
   }
 }

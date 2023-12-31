@@ -1,5 +1,5 @@
 import { Payment } from "src/app/modules/billing/models/payment.model";
-import { keys } from "lodash";
+import { keys, sumBy, sum, groupBy } from "lodash";
 import { Component, OnInit } from "@angular/core";
 import { ActivatedRoute } from "@angular/router";
 
@@ -35,6 +35,7 @@ import { getIsPatientSentForExemption } from "src/app/store/selectors/visit.sele
 import { go, loadCurrentPatient } from "src/app/store/actions";
 import { MatDialog } from "@angular/material/dialog";
 import { ExemptionConfirmationComponent } from "../../components/exemption-confirmation/exemption-confirmation.component";
+import { formatDateToString } from "src/app/shared/helpers/format-date.helper";
 
 @Component({
   selector: "app-current-patient-billing",
@@ -97,13 +98,14 @@ export class CurrentPatientBillingComponent implements OnInit {
     this.currentUser$ = this.store.select(getCurrentUserDetails);
     this.facilityLogo$ = this.configService.getLogo();
     this.facilityDetails$ = this.store.select(getParentLocation);
-    this.currentLocation$ = this.store.pipe(select(getCurrentLocation));
+    this.currentLocation$ = this.store.pipe(select(getCurrentLocation(false)));
     this.provider$ = this.store.select(getProviderDetails);
 
     this.billingService
       .getAllPatientInvoices(this.patientId, false, "all")
       .subscribe({
         next: (bills) => {
+          // console.log("The bills are", bills);
           bills.forEach((bill) => {
             if (bill) {
               this.bill = bill;
@@ -128,7 +130,7 @@ export class CurrentPatientBillingComponent implements OnInit {
                 bill.billDetails.items.forEach((givenItem) => {
                   if (discountItem.item.uuid === givenItem.item.uuid) {
                     givenItems = [...givenItems, givenItem];
-                    item = givenItem
+                    item = givenItem;
                   }
                 });
 
@@ -177,17 +179,20 @@ export class CurrentPatientBillingComponent implements OnInit {
       .getSystemSettingsByKey("icare.billing.exemption.encounterType")
       .pipe(
         tap((response) => {
-          if(response?.error){
+          if (response?.error) {
             this.errors = [...this.errors, response.error];
           }
-          if(response === 'none'){
-            this.errors = [...this.errors, 
-              {error: { 
-                message: "Missing Icare Exemption Configurations. Please set 'icare.billing.exemption.encounterType' or Contact IT"
-                }
-              }
-            ]
-          };
+          if (response === "none") {
+            this.errors = [
+              ...this.errors,
+              {
+                error: {
+                  message:
+                    "Missing Icare Exemption Configurations. Please set 'icare.billing.exemption.encounterType' or Contact IT",
+                },
+              },
+            ];
+          }
         })
       );
 
@@ -256,7 +261,9 @@ export class CurrentPatientBillingComponent implements OnInit {
               return bill;
             }
           }),
-          payments,
+          payments: payments,
+          paymentKeys: Object.keys(groupBy(payments, "visit")),
+          currentPayments: groupBy(payments, "visit")[visit?.uuid],
           paymentItemCount: payments
             .map((payment) => payment?.items?.length || 0)
             .reduce((sum, count) => sum + count, 0),
@@ -291,7 +298,6 @@ export class CurrentPatientBillingComponent implements OnInit {
 
     let exemptionEncounterStart = {
       visit: patientBillingDetails.visit?.uuid,
-      encounterDatetime: currentDate.toISOString(),
       patient: params.currentPatient?.id,
       encounterType: params?.exemptionEncounterType,
       location: params.currentLocation?.uuid,
@@ -434,8 +440,10 @@ export class CurrentPatientBillingComponent implements OnInit {
     // Change image from base64 then replace some text with empty string to get an image
 
     let image = "";
+    let header = "";
+    let subHeader = "";
 
-    e.FacilityDetails.attributes.map((attribute) => {
+    e.FacilityDetails?.attributes?.map((attribute) => {
       let attributeTypeName =
         attribute && attribute.attributeType
           ? attribute?.attributeType?.name.toLowerCase()
@@ -443,6 +451,8 @@ export class CurrentPatientBillingComponent implements OnInit {
       if (attributeTypeName === "logo") {
         image = attribute?.value;
       }
+      header = attributeTypeName === "header" ? attribute?.value : "";
+      subHeader = attributeTypeName === "sub header" ? attribute?.value : "";
     });
 
     let patientMRN =
@@ -455,14 +465,21 @@ export class CurrentPatientBillingComponent implements OnInit {
     frameDoc.document.write(`
     
       <center id="top">
+         <div class="info">
+          <h2>${header.length > 0 ? header : e.FacilityDetails.display} </h2>
+          </div>
         <div class="logo">
           <img src="${image}" alt="Facility's Logo"> 
         </div>
         
 
         <div class="info">
-          <h2>${e.FacilityDetails.display}</h2>
-          <h3>P.O Box ${e.FacilityDetails.postalCode} ${e.FacilityDetails.stateProvince}</h3>
+          <h2>${
+            subHeader.length > 0 ? subHeader : e.FacilityDetails.description
+          } </h2>
+          <h3>P.O Box ${e.FacilityDetails.postalCode} ${
+      e.FacilityDetails.stateProvince
+    }</h3>
           <h3>${e.FacilityDetails.country}</h3>
         </div>
         <!--End Info-->
@@ -502,15 +519,16 @@ export class CurrentPatientBillingComponent implements OnInit {
           payment.items.forEach((item) => {
             let paymentDate = new Date(payment.created);
             // Date to string
-            let date_paid = `${
-              paymentDate.getDate().toString().length > 1
-                ? paymentDate.getDate()
-                : "0" + paymentDate.getDate()
-            }-${
-              paymentDate.getMonth().toString().length > 1
-                ? paymentDate.getMonth()
-                : "0" + paymentDate.getMonth()
-            }-${paymentDate.getFullYear()}`;
+            let date_paid = formatDateToString(paymentDate);
+            // let date_paid = `${
+            //   paymentDate.getDate().toString().length > 1
+            //     ? paymentDate.getDate()
+            //     : "0" + paymentDate.getDate()
+            // }-${
+            //   paymentDate.getMonth().toString().length > 1
+            //     ? paymentDate.getMonth() + 1
+            //     : "0" + paymentDate.getMonth() + 1
+            // }-${paymentDate.getFullYear()}`;
             contents = `
                 <tr>
                   <td>${item.name}</td> 
@@ -521,6 +539,17 @@ export class CurrentPatientBillingComponent implements OnInit {
           });
         });
 
+        let total = sum(
+          e.Payments.map((payment) => {
+            return sumBy(payment.paymentDetails.items, "amount");
+          })
+        );
+        contents = `<tr>
+        
+        <td  style ="font-weight:bold;"> &nbsp;Total </td>
+        <td colspan="2" style ="font-weight:bold; text-align:center">${total}</td>
+        </tr>`;
+        frameDoc.document.write(contents);
         frameDoc.document.write(`
           </tbody>
         </table>`);
@@ -532,7 +561,7 @@ export class CurrentPatientBillingComponent implements OnInit {
       if (e.Bill.length > 0) {
         frameDoc.document.write(`
         <div>
-          <h5>Unpaid Items</h5>
+          <h5>Unpaid Items (Un-attended items)</h5>
         </div>
         <table id="table">
           <thead>
@@ -546,14 +575,67 @@ export class CurrentPatientBillingComponent implements OnInit {
 
         e.Bill.forEach((bill) => {
           bill.items.forEach((record) => {
-            contents = `
-            <tr>
-              <td>${record.name}</td> 
-              <td>${record.quantity}</td> 
-              <td>${record.amount}</td>
-            </tr>`;
-            frameDoc.document.write(contents);
+            // payable items
+            if (!record?.discounted || record.payable > 0) {
+              contents = `
+              <tr>
+                <td>${record.name}</td> 
+                <td>${record.quantity}</td> 
+                <td>${record.payable}</td>
+              </tr>`;
+              frameDoc.document.write(contents);
+            }
           });
+          contents = `<tr>
+          
+          <td  style ="font-weight:bold;"> &nbsp;Total </td>
+          <td colspan="2" style ="font-weight:bold; text-align:center">${bill.totalPaymentAmount}</td>
+          </tr>`;
+          frameDoc.document.write(contents);
+        });
+
+        frameDoc.document.write(`
+          </tbody>
+        </table>`);
+      }
+    }
+
+    // For exempted items
+    if (e.Bill) {
+      if (e.Bill.length > 0) {
+        frameDoc.document.write(`
+        <div>
+          <h5>Exempted Items</h5>
+        </div>
+        <table id="table">
+          <thead>
+            <tr>
+              <th>Item Name</th>
+              <th>Quantity</th>
+              <th>Amount</th>
+            </tr>
+          </thead>
+        <tbody>`);
+
+        e.Bill.forEach((bill) => {
+          bill.items.forEach((record) => {
+            //Check for exempted items unexempted items
+            if (record.discounted) {
+              contents = `
+              <tr>
+                <td>${record.name}</td> 
+                <td>${record.quantity}</td> 
+                <td>${record.discount}</td>
+              </tr>`;
+              frameDoc.document.write(contents);
+            }
+          });
+          contents = `<tr>
+          
+          <td  style ="font-weight:bold;"> &nbsp;Total </td>
+          <td colspan="2" style ="font-weight:bold; text-align:center">${bill.discount}</td>
+          </tr>`;
+          frameDoc.document.write(contents);
         });
 
         frameDoc.document.write(`

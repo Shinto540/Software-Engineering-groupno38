@@ -10,13 +10,13 @@
         <th style="width: 10px">SN</th>
         <th>Procedure</th>
         <th>Date & Time</th>
+        <th style="width: 60px">Status</th>
         <th
           style="width: 60px"
           *ngIf="userPrivileges['CLINIC_ATTEND_PROCEDURE_ORDER']"
         >
           Action
         </th>
-        <th style="width: 60px">Attended?</th>
       </tr>
     </thead>
     <tbody>
@@ -35,7 +35,8 @@
             [ngClass]="{
               'attended-procedure':
                 params?.observationsKeyedByConcepts[procedure?.concept?.uuid]
-                  ?.latest?.valueObject?.display === 'True'
+                  ?.latest?.valueObject?.display === 'True',
+              'voided-item': procedure?.dateStopped || procedure?.autoExpireDate
             }"
           >
             <td>
@@ -47,16 +48,37 @@
             <td>
               {{ procedure?.dateActivated | date: "medium" }}
             </td>
+            <td>
+              <span
+                class="{{
+                  params?.observationsKeyedByConcepts[
+                    procedure?.concept?.uuid + '-' + procedure?.uuid
+                  ]
+                    ? 'text-success'
+                    : 'text-danger'
+                }}"
+              >
+                {{
+                  params?.observationsKeyedByConcepts[
+                    procedure?.concept?.uuid + "-" + procedure?.uuid
+                  ]?.latest?.valueObject?.display === "True"
+                    ? "Attended"
+                    : "Not-Attended"
+                }}
+              </span>
+            </td>
             <td *ngIf="userPrivileges['CLINIC_ATTEND_PROCEDURE_ORDER']">
               <button
                 [disabled]="
                   params?.observationsKeyedByConcepts[
-                    procedure?.concept?.uuid
+                    procedure?.concept?.uuid + '-' + procedure?.uuid
                   ] &&
-                  params?.observationsKeyedByConcepts[procedure?.concept?.uuid]
-                    ?.latest?.valueObject &&
-                  params?.observationsKeyedByConcepts[procedure?.concept?.uuid]
-                    ?.latest?.valueObject?.display
+                  params?.observationsKeyedByConcepts[
+                    procedure?.concept?.uuid + '-' + procedure?.uuid
+                  ]?.latest?.valueObject &&
+                  params?.observationsKeyedByConcepts[
+                    procedure?.concept?.uuid + '-' + procedure?.uuid
+                  ]?.latest?.valueObject?.display
                 "
                 mat-stroked-button
                 (click)="onOpenAttendProcedure($event, procedure)"
@@ -65,12 +87,36 @@
               </button>
             </td>
             <td>
-              {{
-                params?.observationsKeyedByConcepts[procedure?.concept?.uuid]
-                  ?.latest?.valueObject?.display === "True"
-                  ? "True"
-                  : "-"
-              }}
+              <button
+                *ngIf="
+                  !params?.observationsKeyedByConcepts[
+                    procedure?.concept?.uuid + '-' + procedure?.uuid
+                  ]
+                "
+                mat-icon-button
+                [matMenuTriggerFor]="menu"
+                aria-label="Options"
+              >
+                <mat-icon>more_vert</mat-icon>
+              </button>
+              <mat-menu #menu="matMenu">
+                <button
+                  [disabled]="
+                    params?.observationsKeyedByConcepts &&
+                    params?.observationsKeyedByConcepts[
+                      procedure?.concept?.uuid + '-' + procedure?.uuid
+                    ] &&
+                    params?.observationsKeyedByConcepts[
+                      procedure?.concept?.uuid + '-' + procedure?.uuid
+                    ]?.latest?.valueObject?.display === 'True'
+                  "
+                  mat-menu-item
+                  (click)="onDeleteProcedure($event, procedure)"
+                >
+                  <mat-icon>delete</mat-icon>
+                  <span>Delete</span>
+                </button>
+              </mat-menu>
             </td>
           </tr>
         </ng-container>
@@ -115,7 +161,7 @@
       </ng-container>
       <ng-container *ngIf="forConsultation && !isInpatient">
         <tr>
-          <td colspan="3">
+          <td colspan="5">
             <app-form
               [fields]="formFields"
               [isFormHorizontal]="true"

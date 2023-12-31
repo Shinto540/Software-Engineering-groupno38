@@ -3,7 +3,7 @@ import { FormControl } from "@angular/forms";
 import { MatDialog } from "@angular/material/dialog";
 import { select, Store } from "@ngrx/store";
 import { map } from "lodash";
-import { Observable } from "rxjs";
+import { Observable, of } from "rxjs";
 import { AdmissionFormComponent } from "src/app/shared/components/admission-form/admission-form.component";
 import { PatientVisitHistoryModalComponent } from "src/app/shared/components/patient-visit-history-modal/patient-visit-history-modal.component";
 import { getApplicableForms } from "src/app/shared/helpers/identify-applicable-forms.helper";
@@ -11,10 +11,15 @@ import { OpenMRSForm } from "src/app/shared/modules/form/models/custom-openmrs-f
 import { FormConfig } from "src/app/shared/modules/form/models/form-config.model";
 import { ConceptsService } from "src/app/shared/resources/concepts/services/concepts.service";
 import { ICARE_CONFIG } from "src/app/shared/resources/config";
+import { ObservationService } from "src/app/shared/resources/observation/services";
 import { ProviderGetFull } from "src/app/shared/resources/openmrs";
 import { Patient } from "src/app/shared/resources/patient/models/patient.model";
 import { Visit } from "src/app/shared/resources/visits/models/visit.model";
-import { loadCustomOpenMRSForms, loadOrderTypes } from "src/app/store/actions";
+import {
+  go,
+  loadCustomOpenMRSForms,
+  loadOrderTypes,
+} from "src/app/store/actions";
 import {
   clearBills,
   loadPatientBills,
@@ -44,6 +49,7 @@ import {
   getActiveVisit,
   getActiveVisitDeathStatus,
 } from "src/app/store/selectors/visit.selectors";
+import { MatSnackBar } from "@angular/material/snack-bar";
 
 @Component({
   selector: "app-nursing-data",
@@ -78,10 +84,14 @@ export class NursingDataComponent implements OnInit {
   conceptsWithDepartmentsDetails$: Observable<any>;
   orderTypes$: Observable<any[]>;
   locationFormsIds: string[] = [];
+  saveAndExitPath: string = "/nursing";
+  exitAfterSave: boolean = false;
   constructor(
     private store: Store<AppState>,
     private dialog: MatDialog,
-    private conceptsService: ConceptsService
+    private conceptsService: ConceptsService,
+    private observationService: ObservationService,
+    private _snackBar: MatSnackBar
   ) {}
 
   ngOnInit(): void {
@@ -97,21 +107,18 @@ export class NursingDataComponent implements OnInit {
     this.orderTypes$ = this.store.select(getAllOrderTypes);
     this.privileges$ = this.store.select(getCurrentUserPrivileges);
     this.conceptsWithDepartmentsDetails$ =
-      this.conceptsService.getConceptsDepartmentDetails(
+      this.conceptsService.getDepartmentDetails(
         this.nursingConfigurations?.departmentsReference?.id
       );
-    this.forms$ = this.store.select(getCustomOpenMRSFormsByIds, {
-      formUUids: this.locationFormsIds,
-    });
+    this.forms$ = this.store.select(
+      getCustomOpenMRSFormsByIds(this.locationFormsIds)
+    );
     this.provider$ = this.store.select(getProviderDetails);
     this.visit$ = this.store.select(getActiveVisit);
-    this.currentLocation$ = this.store.pipe(select(getCurrentLocation));
+    this.currentLocation$ = this.store.pipe(select(getCurrentLocation(false)));
     this.patient$ = this.store.pipe(select(getCurrentPatient));
 
     this.observations$ = this.store.select(getGroupedObservationByConcept);
-    this.savingObservations$ = this.store.pipe(
-      select(getSavingObservationStatus)
-    );
     this.activeVisitDeathStatus$ = this.store.select(getActiveVisitDeathStatus);
     this.billLoadingState$ = this.store.pipe(select(getLoadingBillStatus));
     this.currentBills$ = this.store.select(getAllBills);
@@ -120,13 +127,35 @@ export class NursingDataComponent implements OnInit {
     );
   }
 
+  onExitAfterSave(exitAfterSave: boolean): void {
+    this.exitAfterSave = exitAfterSave;
+  }
+
   onSaveObservations(data: any, patient): void {
-    this.store.dispatch(
-      saveObservationsUsingEncounter({
-        data,
-        patientId: patient?.patient?.uuid,
-      })
-    );
+    this.savingObservations$ = of(true);
+    this.observationService
+      .saveEncounterWithObsDetails(data)
+      .subscribe((res) => {
+        if (res) {
+          this.ngOnInit();
+          this.savingObservations$ = of(false);
+          this._snackBar.open(`Successfully saved data`, "OK", {
+            horizontalPosition: "center",
+            verticalPosition: "bottom",
+            duration: 6000,
+            panelClass: ["snack-color-ok"],
+          });
+          setTimeout(() => {
+            this.store.dispatch(go({ path: [this.saveAndExitPath] }));
+          }, 300);
+        }
+      });
+    // this.store.dispatch(
+    //   saveObservationsUsingEncounter({
+    //     data,
+    //     patientId: patient?.patient?.uuid,
+    //   })
+    // );
   }
 
   changeTab(index) {

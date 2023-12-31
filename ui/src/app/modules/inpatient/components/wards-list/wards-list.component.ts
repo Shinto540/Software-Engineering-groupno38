@@ -1,17 +1,16 @@
 import { Component, EventEmitter, Input, OnInit, Output } from "@angular/core";
 import { Store } from "@ngrx/store";
 import { Observable } from "rxjs";
+import { map } from "rxjs/operators";
 import { getBillingConceptUuid } from "src/app/core";
 import { Location } from "src/app/core/models";
 import { VisitObject } from "src/app/shared/resources/visits/models/visit-object.model";
 import { VisitsService } from "src/app/shared/resources/visits/services";
-import { loadLocationById } from "src/app/store/actions";
 import { AppState } from "src/app/store/reducers";
 import { getBedsGroupedByTheCurrentLocationChildren } from "src/app/store/selectors";
-import {
-  getAllAdmittedPatientVisits,
-  getPatientVisitsForAdmissionAddedState,
-} from "src/app/store/selectors/visit.selectors";
+import { getPatientVisitsForAdmissionAddedState } from "src/app/store/selectors/visit.selectors";
+
+import { keyBy } from "lodash";
 
 @Component({
   selector: "app-wards-list",
@@ -24,6 +23,7 @@ export class WardsListComponent implements OnInit {
   @Input() locationBedsDetails: any;
   @Input() bedOrdersWithBillStatus: any[];
   @Input() locationsIds: string[];
+  @Input() encounterType: string;
   wardsInfo$: Observable<Location[]>;
   admissionVisitsAdded$: Observable<boolean>;
   admittedPatientsVisits$: Observable<VisitObject[]>;
@@ -41,9 +41,13 @@ export class WardsListComponent implements OnInit {
       }
     );
 
-    this.admittedPatientsVisits$ = this.visitService.getAdmittedPatientsVisits(
-      this.locationsIds
-    );
+    this.admittedPatientsVisits$ = this.visitService
+      .getPatientsVisitsByEncounterType(this.encounterType)
+      .pipe(
+        map((response: any) => {
+          return keyBy(response, "locationUuid");
+        })
+      );
 
     this.admissionVisitsAdded$ = this.store.select(
       getPatientVisitsForAdmissionAddedState

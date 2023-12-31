@@ -117,6 +117,12 @@ public class ICareServiceTest extends ICareTestBase {
 			}
 		}
 		assertThat("6 Visit have been closed", closed, is(6));
-		assertThat("1 Visit have been open", opened, is(0));
+		assertThat("0 Visit is open", opened, is(0));
+	}
+	
+	@Test
+	public void addPasswordHistory() throws Exception {
+		ICareService iCareService = Context.getService(ICareService.class);
+		iCareService.updatePasswordHistory();
 	}
 }

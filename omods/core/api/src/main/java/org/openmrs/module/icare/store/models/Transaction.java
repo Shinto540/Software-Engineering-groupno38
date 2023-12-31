@@ -5,7 +5,7 @@ package org.openmrs.module.icare.store.models;
 import org.openmrs.BaseOpenmrsData;
 import org.openmrs.Location;
 import org.openmrs.module.icare.core.Item;
-
+import org.openmrs.Order;
 import javax.persistence.*;
 import java.util.Date;
 
@@ -23,6 +23,10 @@ public class Transaction extends BaseOpenmrsData implements java.io.Serializable
 	@Column(name = "transaction_id", unique = true, nullable = false)
 	private Integer id;
 	
+	@OneToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "order_id")
+	private Order order;
+	
 	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name = "item_id")
 	private Item item;
@@ -34,6 +38,14 @@ public class Transaction extends BaseOpenmrsData implements java.io.Serializable
 	@ManyToOne(fetch = FetchType.LAZY)
 	@JoinColumn(name = "location_id")
 	private Location location;
+	
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "source_location_id")
+	private Location sourceLocation;
+	
+	@ManyToOne(fetch = FetchType.LAZY)
+	@JoinColumn(name = "destination_location_id")
+	private Location destinationLocation;
 	
 	@Column(name = "batch_no")
 	private String batchNo;
@@ -110,5 +122,29 @@ public class Transaction extends BaseOpenmrsData implements java.io.Serializable
 	
 	public void setLocation(Location location) {
 		this.location = location;
+	}
+	
+	public Location getSourceLocation() {
+		return sourceLocation;
+	}
+	
+	public void setSourceLocation(Location sourceLocation) {
+		this.sourceLocation = sourceLocation;
+	}
+	
+	public Location getDestinationLocation() {
+		return destinationLocation;
+	}
+	
+	public void setDestinationLocation(Location destinationLocation) {
+		this.destinationLocation = destinationLocation;
+	}
+	
+	public Order getOrder() {
+		return order;
+	}
+	
+	public void setOrder(Order order) {
+		this.order = order;
 	}
 }

@@ -21,25 +21,18 @@ export function getOrdersFromCurrentVisitEncounters(
         ) || [],
         (order) => {
           const paid =
-            bills?.length == 0
-              ? true
-              : !isEnsured
-              ? false
-              : isEnsured
-              ? true
-              : !bills
+            !bills || bills?.length === 0
               ? true
               : !isEnsured && bills && bills?.length === 0
-              ? false
-              : isEnsured && bills && bills?.length === 0
               ? true
-              : bills && bills?.length === 0
+              // : isEnsured && bills && bills?.length === 0
+              : isEnsured
               ? true
               : (
-                  bills.filter(
+                  bills?.filter(
                     (bill) =>
                       (
-                        bill?.items.filter(
+                        bill?.items?.filter(
                           (billItem) =>
                             billItem?.billItem?.item?.concept?.uuid ===
                             order?.concept?.uuid
@@ -56,8 +49,7 @@ export function getOrdersFromCurrentVisitEncounters(
                   observation?.concept?.uuid === order?.concept?.uuid
               ) || [])[0]
             : null;
-          console;
-          return {
+          const formattedItem = {
             orderNumber: order?.orderNumber,
             uuid: order?.uuid,
             dateActivated: order?.dateActivated,
@@ -71,7 +63,7 @@ export function getOrdersFromCurrentVisitEncounters(
               uuid: order?.orderer?.uuid,
               display: order?.orderer?.display,
             },
-            value: observation ? observation?.value?.display : null,
+            value: observation ? observation?.value : null,
             remarks: observation ? observation?.comment : null,
             obsDatetime: observation ? observation?.obsDatetime : null,
             paid,
@@ -81,6 +73,7 @@ export function getOrdersFromCurrentVisitEncounters(
             instructions: order?.instructions,
             type: order?.type,
           };
+          return formattedItem;
         }
       ),
     ];

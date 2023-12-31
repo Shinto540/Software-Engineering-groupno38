@@ -4,10 +4,17 @@ import { SharedModule } from "src/app/shared/shared.module";
 import { SampleRegistrationRoutingModule } from "./sample-registration-routing.module";
 import { sampleRegistrationPages } from "./pages";
 import { regModals, sampleRegistrationComponents } from "./components";
+import { SharedLabModule } from "../../shared/modules/shared-lab.module";
 
 @NgModule({
+  imports: [
+    CommonModule,
+    SampleRegistrationRoutingModule,
+    SharedModule,
+    SharedLabModule,
+  ],
   declarations: [...sampleRegistrationPages, ...sampleRegistrationComponents],
-  imports: [CommonModule, SampleRegistrationRoutingModule, SharedModule],
+  exports: [...sampleRegistrationPages, ...sampleRegistrationComponents],
   entryComponents: [...regModals],
 })
 export class SampleRegistrationModule {}

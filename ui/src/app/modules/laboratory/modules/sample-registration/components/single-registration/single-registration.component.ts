@@ -1,7 +1,6 @@
-import { Component, Input, OnInit } from "@angular/core";
+import { AfterViewInit, Component, Input, OnInit } from "@angular/core";
 import { MatDialog } from "@angular/material/dialog";
 import { MatRadioChange } from "@angular/material/radio";
-import * as moment from "moment";
 import { Observable, of, zip } from "rxjs";
 import {
   EQA_PERSON_DATA,
@@ -12,34 +11,38 @@ import { Location } from "src/app/core/models";
 import { SystemSettingsWithKeyDetails } from "src/app/core/models/system-settings.model";
 import { LocationService } from "src/app/core/services";
 import { IdentifiersService } from "src/app/core/services/identifiers.service";
-import { LabSampleModel } from "src/app/modules/laboratory/resources/models";
 import { LabOrdersService } from "src/app/modules/laboratory/resources/services/lab-orders.service";
 import { LabTestsService } from "src/app/modules/laboratory/resources/services/lab-tests.service";
 import { RegistrationService } from "src/app/modules/registration/services/registration.services";
-import { formatDateToYYMMDD } from "src/app/shared/helpers/format-date.helper";
-import { DateField } from "src/app/shared/modules/form/models/date-field.model";
 import { Dropdown } from "src/app/shared/modules/form/models/dropdown.model";
 import { FormValue } from "src/app/shared/modules/form/models/form-value.model";
-import { Textbox } from "src/app/shared/modules/form/models/text-box.model";
 import { ICARE_CONFIG } from "src/app/shared/resources/config";
 import { DiagnosisService } from "src/app/shared/resources/diagnosis/services";
 import { ConceptGetFull } from "src/app/shared/resources/openmrs";
 import { VisitsService } from "src/app/shared/resources/visits/services";
 import { SamplesService } from "src/app/shared/services/samples.service";
-import { BarCodeModalComponent } from "../../../sample-acceptance-and-results/components/bar-code-modal/bar-code-modal.component";
+import { BarCodeModalComponent } from "../../../../../../shared/dialogs/bar-code-modal/bar-code-modal.component";
 
-import { uniqBy, keyBy, omit } from "lodash";
+import { uniqBy, keyBy, omit, groupBy, flatten } from "lodash";
 import { OrdersService } from "src/app/shared/resources/order/services/orders.service";
 import { SampleRegistrationFinalizationComponent } from "../sample-registration-finalization/sample-registration-finalization.component";
 import { ConceptsService } from "src/app/shared/resources/concepts/services/concepts.service";
 import { map } from "rxjs/operators";
+import { OtherClientLevelSystemsService } from "src/app/modules/laboratory/resources/services/other-client-level-systems.service";
+import { SharedConfirmationComponent } from "src/app/shared/components/shared-confirmation/shared-confirmation.component";
+import { Store } from "@ngrx/store";
+import { AppState } from "src/app/store/reducers";
+import { getLocationsByIds } from "src/app/store/selectors";
+import { formatDateToYYMMDD } from "src/app/shared/helpers/format-date.helper";
+import { webSocket } from "rxjs/webSocket";
+import { Textbox } from "src/app/shared/modules/form/models/text-box.model";
 
 @Component({
   selector: "app-single-registration",
   templateUrl: "./single-registration.component.html",
   styleUrls: ["./single-registration.component.scss"],
 })
-export class SingleRegistrationComponent implements OnInit {
+export class SingleRegistrationComponent implements OnInit, AfterViewInit {
   labSampleLabel$: Observable<string>;
   @Input() mrnGeneratorSourceUuid: string;
   @Input() preferredPersonIdentifier: string;
@@ -50,6 +53,16 @@ export class SingleRegistrationComponent implements OnInit {
   @Input() labSections: ConceptGetFull[];
   @Input() labNumberCharactersCount: string;
   @Input() testsFromExternalSystemsConfigs: any[];
+  @Input() currentUser: any;
+  @Input() allRegistrationFields: any;
+  @Input() LISConfigurations: any;
+  @Input() barcodeSettings: any;
+  @Input() specimenSources: ConceptGetFull[];
+  @Input() personEmailAttributeTypeUuid: string;
+  @Input() personPhoneAttributeTypeUuid: string;
+  @Input() labTestRequestProgramStageId: string;
+  @Input() sampleRegistrationCategories: any[];
+  @Input() specimenSourceConceptUuid: string;
 
   departmentField: any = {};
   specimenDetailsFields: any;
@@ -72,7 +85,8 @@ export class SingleRegistrationComponent implements OnInit {
 
   patientFieldSetClosed: boolean = false;
 
-  registrationCategory: string = "CLINICAL";
+  registrationCategory: any;
+  // "CLINICAL";
 
   receivedOnField: any;
   receivedByField: any;
@@ -113,6 +127,23 @@ export class SingleRegistrationComponent implements OnInit {
   maxForBroughtOn: boolean = true;
   selectedSystem: any;
   fromExternalSystem: boolean;
+  transportCondition: Dropdown;
+  transportationTemperature: Dropdown;
+  labRequestPayload: any;
+  savingLabRequest: boolean = false;
+  labLocations$: Observable<any>;
+  currentLabLocation: any;
+  existingFields: any;
+  connection: any;
+  referralFields: any[];
+  referralData: any;
+  showReferralDataFields: boolean = true;
+
+  renderGenericForms: boolean = false;
+  generalObsFormData: any = {};
+  generalObservationsData: any;
+  isGeneralObsFormValid: boolean = true;
+  formId: string;
 
   constructor(
     private samplesService: SamplesService,
@@ -125,114 +156,69 @@ export class SingleRegistrationComponent implements OnInit {
     private diagnosisService: DiagnosisService,
     private dialog: MatDialog,
     private orderService: OrdersService,
-    private conceptService: ConceptsService
+    private conceptService: ConceptsService,
+    private otherSystemsService: OtherClientLevelSystemsService,
+    private store: Store<AppState>
   ) {
     this.currentLocation = JSON.parse(localStorage.getItem("currentLocation"));
   }
+  ngAfterViewInit(): void {
+    this.connection = webSocket(this.barcodeSettings?.socketUrl);
+
+    this.connection.subscribe({
+      next: (msg) => console.log("message received: ", msg), // Called whenever there is a message from the server.
+      error: (err) => console.log(err), // Called if at any point WebSocket API signals some kind of error.
+      complete: () => console.log("complete"), // Called when connection is closed (for whatever reason).
+    });
+  }
 
   ngOnInit(): void {
-    console.log(
-      "testsFromExternalSystemsConfigs",
-      this.testsFromExternalSystemsConfigs
+    // console.log(
+    //   "sampleRegistrationCategories refKey",
+    //   this.sampleRegistrationCategories
+    // );
+    this.registrationCategory = this.sampleRegistrationCategories[0];
+    const userLocationsIds = JSON.parse(
+      this.currentUser?.userProperties?.locations
     );
+    this.labLocations$ = this.store.select(getLocationsByIds(userLocationsIds));
     this.labSampleLabel$ = this.samplesService.getSampleLabel();
-    this.referringDoctorFields = this.referringDoctorAttributes.map(
-      (attribute) => {
-        return new Textbox({
-          id: "attribute-" + attribute?.value,
-          key: "attribute-" + attribute?.value,
-          label: attribute?.name,
-          type: "text",
-        });
-      }
-    );
-
-    this.specimenDetailsFields = [
-      new Dropdown({
-        id: "specimen",
-        key: "specimen",
-        label: "Specimen",
-        searchTerm: "SPECIMEN_SOURCE",
-        options: [],
-        conceptClass: "Specimen",
-        searchControlType: "concept",
-        shouldHaveLiveSearchForDropDownFields: true,
-      }),
-      new Dropdown({
-        id: "condition",
-        key: "condition",
-        label: "Condition",
-        options: [],
-        conceptClass: "condition",
-        searchControlType: "concept",
-        searchTerm: "SAMPLE_CONDITIONS",
-        shouldHaveLiveSearchForDropDownFields: true,
-      }),
-      new Dropdown({
-        id: "agency",
-        key: "agency",
-        label: "Agency/Priority",
-        options: [],
-        conceptClass: "priority",
-        searchControlType: "concept",
-        searchTerm: "SAMPLE_PRIORITIES",
-        shouldHaveLiveSearchForDropDownFields: true,
-      }),
-      // new Dropdown({
-      //   id: "receivinglab",
-      //   key: "receivinglab",
-      //   label: "Receiving Lab",
-      //   options: [],
-      //   searchControlType: "concept",
-      //   conceptClass: "Lab Department",
-      //   shouldHaveLiveSearchForDropDownFields: true,
-      // }),
-      // new DateField({
-      //   id: "receivedOn",
-      //   key: "receivedOn",
-      //   label: "Received On",
-      // }),
-      // new Dropdown({
-      //   id: "department",
-      //   key: "department",
-      //   label: "Department",
-      //   options: [],
-      //   searchControlType: "concept",
-      //   conceptClass: "Lab Department",
-      //   shouldHaveLiveSearchForDropDownFields: true,
-      // }),
-    ];
-
-    this.receivedOnField = new DateField({
-      id: "receivedOn",
-      key: "receivedOn",
-      label: "Received On",
-      max: this.maximumDate,
+    this.referringDoctorFields = Object.keys(
+      this.allRegistrationFields?.referringDoctorFields
+    ).map((key) => {
+      return this.allRegistrationFields?.referringDoctorFields[key];
     });
 
-    this.receivedByField = new Dropdown({
-      id: "receivedBy",
-      key: "receivedBy",
-      label: "Received By",
-      options: [],
-      shouldHaveLiveSearchForDropDownFields: true,
-      searchControlType: "user",
-    });
+    this.specimenDetailsFields = Object.keys(
+      this.allRegistrationFields?.specimenDetailFields
+    )
+      .slice(0, 3)
+      .map((key) => {
+        const field = this.allRegistrationFields?.specimenDetailFields[key];
+        return field;
+      });
+    this.createReferralFields();
+    this.receivedOnField =
+      this.allRegistrationFields?.specimenDetailFields?.receivedOn;
+    this.receivedByField =
+      this.allRegistrationFields?.specimenDetailFields?.receivedBy;
+    this.transportCondition =
+      this.allRegistrationFields?.specimenDetailFields?.transportCondition;
+    this.transportationTemperature =
+      this.allRegistrationFields?.specimenDetailFields?.transportationTemperature;
 
-    this.agencyFormField = new Dropdown({
-      id: "agency",
-      key: "agency",
-      label: "Agency/Priority",
-      options: this.agencyConceptConfigs?.setMembers.map((member) => {
-        return {
-          key: member?.uuid,
-          value: member?.display,
-          label: member?.display,
-          name: member?.display,
-        };
-      }),
-      shouldHaveLiveSearchForDropDownFields: false,
-    });
+    this.sampleColectionDateField =
+      this.allRegistrationFields?.specimenDetailFields?.collectedOn;
+    this.sampleCollectedByField =
+      this.allRegistrationFields?.specimenDetailFields?.collectedBy;
+    this.broughtOnField =
+      this.allRegistrationFields?.specimenDetailFields?.broughtOn;
+    this.broughtByField =
+      this.allRegistrationFields?.specimenDetailFields?.broughtBy;
+
+    this.receivedOnField.max = this.maximumDate;
+    this.broughtOnField.max = this.maximumDate;
+    this.sampleColectionDateField.max = this.maximumDate;
 
     const currentLocation = JSON.parse(localStorage.getItem("currentLocation"));
     const labsAvailable =
@@ -240,23 +226,38 @@ export class SingleRegistrationComponent implements OnInit {
         ? currentLocation?.childLocations
         : [];
 
-    // this.labFormField = new Dropdown({
-    //   id: "lab",
-    //   key: "lab",
-    //   label: "Receiving Lab",
-    //   options: labsAvailable.map((location) => {
-    //     return {
-    //       key: location?.uuid,
-    //       value: location?.uuid,
-    //       label: location?.display,
-    //       name: location?.display,
-    //     };
-    //   }),
-    //   shouldHaveLiveSearchForDropDownFields: false,
-    // });getSelectedRCollectedOnTime
+    this.renderGenericForms = true;
+  }
 
-    this.createSampleCollectionDetailsFields();
-    this.createSampleBroughtByDetailsFields();
+  onCustomFormUpdate(data: FormValue): void {
+    this.isGeneralObsFormValid = data.isValid;
+    this.generalObsFormData = {
+      ...this.generalObsFormData,
+      ...data.getValues(),
+    };
+    this.selectedSpecimenUuid =
+      this.generalObsFormData[this.specimenSourceConceptUuid]?.value;
+    // console.log("this.selectedSpecimenUuid", this.selectedSpecimenUuid);
+    if (this.selectedSpecimenUuid) {
+      this.testsUnderSpecimen$ =
+        this.labTestsService.getSetMembersByConceptUuid(
+          this.selectedSpecimenUuid
+        );
+    }
+    this.generalObservationsData = groupBy(
+      Object.keys(this.generalObsFormData).map((key) => {
+        return {
+          concept: key,
+          value: (this.generalObsFormData[key]?.value).toString(),
+          form: this.generalObsFormData[key]?.form,
+        };
+      }) || [],
+      "form"
+    );
+  }
+
+  onGetFormId(id: string): void {
+    this.formId = id;
   }
 
   get maximumDate() {
@@ -284,36 +285,6 @@ export class SingleRegistrationComponent implements OnInit {
     return `${date.getFullYear()}-${month}-${day}`;
   }
 
-  createSampleCollectionDetailsFields(data?: any): void {
-    this.sampleColectionDateField = new DateField({
-      id: "collectedOn",
-      key: "collectedOn",
-      label: "Collected On",
-      max: this.maximumDate,
-    });
-
-    this.sampleCollectedByField = new Textbox({
-      id: "collectedBy",
-      key: "collectedBy",
-      label: "Collected By",
-    });
-  }
-
-  createSampleBroughtByDetailsFields(data?: any): void {
-    this.broughtOnField = new DateField({
-      id: "broughtOn",
-      key: "broughtOn",
-      label: "Delivered On",
-      max: this.maximumDate,
-    });
-
-    this.broughtByField = new Textbox({
-      id: "broughtBy",
-      key: "broughtBy",
-      label: "Delivered By",
-    });
-  }
-
   togglePatientDetailsFieldSet(event: Event): void {
     event.stopPropagation();
     this.patientFieldSetClosed = !this.patientFieldSetClosed;
@@ -321,6 +292,57 @@ export class SingleRegistrationComponent implements OnInit {
 
   getSelection(event: MatRadioChange): void {
     this.registrationCategory = event?.value;
+    this.renderGenericForms = false;
+    setTimeout(() => {
+      this.renderGenericForms = true;
+    }, 20);
+  }
+
+  getTimestampFromDateAndTime(date: string, time: string): number {
+    return new Date(`${date} ${time}`).getTime();
+  }
+
+  createReferralFields(): void {
+    this.referralFields = [
+      new Dropdown({
+        id: "isReferred",
+        key: "isReferred",
+        label: "Referred?",
+        required: true,
+        options: [
+          {
+            key: "YES",
+            label: "YES",
+            name: "YES",
+            value: "YES",
+          },
+          {
+            key: "NO",
+            label: "NO",
+            name: "NO",
+            value: "NO",
+          },
+        ],
+      }),
+      new Textbox({
+        id: "referralReason",
+        key: "referralReason",
+        label: "Referral reason",
+      }),
+    ];
+  }
+
+  onGetReferralData(formValue: FormValue): void {
+    const values = formValue.getValues();
+    if (values["isReferred"]?.value === "YES") {
+      this.referralData = {
+        status: "REFERRED SAMPLE",
+        category: "SAMPLE_REFERRAL",
+        remarks: values?.referralReason?.value
+          ? values?.referralReason?.value
+          : "Referred",
+      };
+    }
   }
 
   getSelectedReceivedOnTime(event: Event): void {
@@ -442,8 +464,13 @@ export class SingleRegistrationComponent implements OnInit {
     };
   }
 
+  onGetDateTime(e: any) {
+    console.log("==> Date time: ", e);
+  }
+
   onFormUpdate(formValues: FormValue, itemKey?: string): void {
     //Validate Date fields
+    this.formData = { ...this.formData, ...formValues.getValues() };
     if (formValues.getValues()?.collectedOn?.value.toString()?.length > 0) {
       let collected_on_date;
       collected_on_date = this.getDateStringFromDate(
@@ -505,23 +532,22 @@ export class SingleRegistrationComponent implements OnInit {
     this.maxForCollectedOn = true;
 
     // this.getDateStringFromMoment_i();
-    this.formData = { ...this.formData, ...formValues.getValues() };
-    if (
-      itemKey &&
-      itemKey === "specimenDetails" &&
-      this.selectedSpecimenUuid !== this.formData["specimen"]?.value
-    ) {
-      this.selectedSpecimenUuid = this.formData["specimen"]?.value;
-      this.testsUnderSpecimen$ =
-        this.labTestsService.getSetMembersByConceptUuid(
-          this.selectedSpecimenUuid
-        );
-    }
+    // if (
+    //   itemKey &&
+    //   itemKey === "specimenDetails" &&
+    //   this.selectedSpecimenUuid !== this.formData["specimen"]?.value
+    // ) {
+    //   this.selectedSpecimenUuid = this.formData["specimen"]?.value;
+    //   this.testsUnderSpecimen$ =
+    //     this.labTestsService.getSetMembersByConceptUuid(
+    //       this.selectedSpecimenUuid
+    //     );
+    // }
   }
 
   onFormUpdateForTest(testValues: any): void {
     Object.keys(this.formData).forEach((key) => {
-      if (!testValues[key]) {
+      if (!testValues[key] && key?.indexOf("test") > -1) {
         this.formData = omit(this.formData, key);
       }
     });
@@ -575,10 +601,8 @@ export class SingleRegistrationComponent implements OnInit {
 
   onGetPersonDetails(personDetails: any): void {
     this.personDetailsData =
-      this.registrationCategory === "CLINICAL"
+      this.registrationCategory?.refKey !== "non-clinical"
         ? personDetails
-        : this.registrationCategory === "EQA"
-        ? EQA_PERSON_DATA
         : NON_CLINICAL_PERSON_DATA;
     if (this.fromExternalSystem && this.selectedSystem) {
       // console.log(
@@ -609,919 +633,996 @@ export class SingleRegistrationComponent implements OnInit {
     for (
       let count = 0;
       count <
-      Number(this.labNumberCharactersCount) - labNumber.toString()?.length;
+      Number(this.labNumberCharactersCount) -
+        (labNumber.toString()?.length + 6);
       count++
     ) {
       generatedStr = generatedStr + "0";
     }
-    return generatedStr + labNumber.toString();
+    return (
+      new Date().getFullYear().toString() +
+      new Date().getMonth().toString() +
+      generatedStr +
+      labNumber.toString()
+    );
   }
 
   onGetClinicalDataValues(clinicalData): void {
     this.formData = { ...this.formData, ...clinicalData };
   }
 
-  onSave(event: Event, forRejection?: boolean): void {
+  onSave(event: Event, forRejection?: boolean, labLocations?: any[]): void {
     event.stopPropagation();
-    // Identify if tests ordered are well configured
-
-    // Identify referring doctor fields entered values
-    let attributeMissingOnDoctorsAttributes;
-    const doctorsAttributesWithValues =
-      this.referringDoctorAttributes.filter(
-        (attribute) => this.formData["attribute-" + attribute?.value]?.value
-      ) || [];
-    if (
-      doctorsAttributesWithValues?.length !=
-      this.referringDoctorAttributes?.length
-    ) {
-      attributeMissingOnDoctorsAttributes = true;
-      this.referringDoctorAttributes.forEach((attribute) => {
-        if (!this.formData["attribute-" + attribute?.value]?.value) {
-          this.formData["attribute-" + attribute?.value] = {
-            id: "attribute-" + attribute?.value,
-            value: "NONE",
-          };
-        }
-      });
-    }
-
-    this.personDetailsData =
-      this.registrationCategory === "CLINICAL"
-        ? this.personDetailsData
-        : this.registrationCategory === "EQA"
-        ? EQA_PERSON_DATA
-        : NON_CLINICAL_PERSON_DATA;
-    if (this.testOrders?.length === 0) {
-      this.errorMessage = "No test has been selected";
+    if (labLocations?.length === 1) {
+      this.currentLabLocation = labLocations[0];
     } else {
-      this.errorMessage = "";
-      const orderConceptUuids =
-        this.testOrders.map((testOrder) => testOrder?.value) || [];
-      this.conceptService
-        .getConceptSetsByConceptUuids(orderConceptUuids)
-        .subscribe((conceptSetsResponse: any) => {
-          if (conceptSetsResponse && !conceptSetsResponse?.error) {
-            this.groupedTestOrdersByDepartments = formulateSamplesByDepartments(
-              conceptSetsResponse,
-              this.testOrders
-            );
-            zip(
-              this.registrationService.getPatientIdentifierTypes(),
-              this.locationService.getFacilityCode(),
-              this.registrationService.getAutoFilledPatientIdentifierType()
-            ).subscribe((results) => {
-              if (results) {
-                const patientIdentifierTypes = results[0];
-                this.identifierService
-                  .generateIds({
-                    generateIdentifiers: true,
-                    sourceUuid: this.mrnGeneratorSourceUuid,
-                    numberToGenerate: 1,
-                  })
-                  .subscribe((identifierResponse) => {
-                    if (identifierResponse) {
-                      /**
+      this.currentLabLocation = null;
+      // Then user should define the lab
+    }
+    let confirmationDialogue = this.dialog.open(SharedConfirmationComponent, {
+      width: "25%",
+      data: {
+        modalTitle: forRejection ? `Save to reject sample` : `Save sample`,
+        modalMessage: forRejection
+          ? `You are about to register to reject the current sample. Proceed?`
+          : `Proceed with saving sample?`,
+        showRemarksInput: false,
+        confirmationButtonText: "Proceed",
+      },
+    });
+
+    confirmationDialogue.afterClosed().subscribe((closingObject) => {
+      if (closingObject?.confirmed) {
+        // Identify if tests ordered are well configured
+
+        // Identify referring doctor fields entered values
+        let attributeMissingOnDoctorsAttributes;
+        this.sampleLabelsUsedDetails = [];
+        const doctorsAttributesWithValues =
+          this.referringDoctorAttributes.filter(
+            (attribute) => this.formData["attribute-" + attribute?.value]?.value
+          ) || [];
+        if (
+          doctorsAttributesWithValues?.length !=
+          this.referringDoctorAttributes?.length
+        ) {
+          attributeMissingOnDoctorsAttributes = true;
+          this.referringDoctorAttributes.forEach((attribute) => {
+            if (!this.formData["attribute-" + attribute?.value]?.value) {
+              this.formData["attribute-" + attribute?.value] = {
+                id: "attribute-" + attribute?.value,
+                value: "NONE",
+              };
+            }
+          });
+        }
+
+        const testOrdersWithNoDepartments: any[] = flatten(
+          this.groupedTestOrdersByDepartments
+            ?.map((groupedTestOrdersByDepartment: any) => {
+              if (
+                (
+                  groupedTestOrdersByDepartment?.filter(
+                    (testOrder: any) => !testOrder?.departmentUuid
+                  ) || []
+                )?.length > 0
+              ) {
+                return (
+                  groupedTestOrdersByDepartment?.filter(
+                    (testOrder: any) => !testOrder?.departmentUuid
+                  ) || []
+                );
+              }
+            })
+            ?.filter(
+              (testOrdersWithNoDepartment: any) => testOrdersWithNoDepartment
+            )
+        );
+        this.personDetailsData =
+          this.registrationCategory?.refKey !== "non-clinical"
+            ? this.personDetailsData
+            : NON_CLINICAL_PERSON_DATA;
+        if (this.testOrders?.length === 0) {
+          this.errorMessage = "No test has been selected";
+        } else if (testOrdersWithNoDepartments.length > 0) {
+          this.errorMessage = `Test${
+            testOrdersWithNoDepartments.length > 1 ? "s" : ""
+          }s
+            ${(
+              testOrdersWithNoDepartments?.map(
+                (testOrderWithNoDept: any) => testOrderWithNoDept?.display
+              ) || []
+            ).join(", ")}
+            " ${
+              testOrdersWithNoDepartments?.length > 1 ? " have " : " has "
+            } no departments set, Contact IT for support`;
+        } else {
+          this.errorMessage = "";
+          const orderConceptUuids =
+            this.testOrders.map((testOrder) => testOrder?.value) || [];
+          this.conceptService
+            .getConceptSetsByConceptUuids(orderConceptUuids)
+            .subscribe((conceptSetsResponse: any) => {
+              if (conceptSetsResponse && !conceptSetsResponse?.error) {
+                const groupedTestorders = groupBy(
+                  conceptSetsResponse,
+                  "testOrder"
+                );
+                this.groupedTestOrdersByDepartments = [];
+                Object.keys(groupedTestorders).forEach((key: string) => {
+                  let metadata = [];
+                  metadata = groupedTestorders[key];
+                  if (metadata.length > 0) {
+                    this.groupedTestOrdersByDepartments = [
+                      ...this.groupedTestOrdersByDepartments,
+                      metadata,
+                    ];
+                  }
+                });
+                zip(
+                  this.registrationService.getPatientIdentifierTypes(),
+                  this.locationService.getFacilityCode(),
+                  this.registrationService.getAutoFilledPatientIdentifierType()
+                ).subscribe((results) => {
+                  if (results) {
+                    const patientIdentifierTypes = results[0];
+                    this.identifierService
+                      .generateIds({
+                        generateIdentifiers: true,
+                        sourceUuid: this.mrnGeneratorSourceUuid,
+                        numberToGenerate: 1,
+                      })
+                      .subscribe((identifierResponse) => {
+                        if (identifierResponse) {
+                          /**
                 1. Create user
                 2. Create visit (Orders should be added in)
                 3. Create sample
                 */
 
-                      this.patientPayload = {
-                        person: {
-                          names: [
-                            {
-                              givenName: this.personDetailsData?.firstName,
-                              familyName: this.personDetailsData?.lastName,
-                              familyName2: this.personDetailsData?.middleName,
-                            },
-                          ],
-                          gender: this.personDetailsData?.gender,
-                          age: this.personDetailsData?.age,
-                          birthdate: this.personDetailsData?.dob
-                            ? this.personDetailsData?.dob
-                            : null,
-                          birthdateEstimated: this.personDetailsData?.dob
-                            ? false
-                            : true,
-                          addresses: [
-                            {
-                              address1: this.personDetailsData?.address,
-                              address2: this.personDetailsData?.address,
-                              address3: this.personDetailsData?.address,
-                              cityVillage: "",
-                              country: "",
-                              postalCode: "",
-                            },
-                          ],
-                          attributes: [],
-                        },
-                        identifiers:
-                          this.registrationCategory === "CLINICAL"
-                            ? (patientIdentifierTypes || [])
-                                .map((personIdentifierType) => {
-                                  if (
-                                    personIdentifierType.id ===
-                                    this.preferredPersonIdentifier
-                                  ) {
-                                    return {
-                                      identifier: this.personDetailsData["mrn"]
-                                        ? this.personDetailsData["mrn"]
-                                        : this.personDetailsData[
-                                            personIdentifierType.id
-                                          ],
-                                      identifierType: personIdentifierType.id,
-                                      location: this.currentLocation?.uuid,
-                                      preferred: true,
-                                    };
-                                  } else {
-                                    return {
-                                      identifier:
-                                        this.personDetailsData[
-                                          personIdentifierType.id
-                                        ],
-                                      identifierType: personIdentifierType.id,
-                                      location: this.currentLocation?.uuid,
-                                      preferred: false,
-                                    };
-                                  }
-                                })
-                                .filter(
-                                  (patientIdentifier) =>
-                                    patientIdentifier?.identifier
-                                )
-                            : [
+                          this.patientPayload = {
+                            person: {
+                              names: [
                                 {
-                                  identifier: identifierResponse[0],
-                                  identifierType:
-                                    this.preferredPersonIdentifier,
-                                  location: this.currentLocation?.uuid,
-                                  preferred: true,
+                                  givenName: this.personDetailsData?.firstName,
+                                  familyName: this.personDetailsData?.lastName,
+                                  familyName2:
+                                    this.personDetailsData?.middleName,
                                 },
                               ],
-                      };
-                      this.savingData = true;
-                      this.registrationService
-                        .createPatient(
-                          this.patientPayload,
-                          this.personDetailsData?.patientUuid
-                        )
-                        .subscribe((patientResponse) => {
-                          this.savingDataResponse = patientResponse;
-                          if (!patientResponse?.error) {
-                            // TODO: SOftcode visit type
-                            let visAttributes = [
-                              {
-                                attributeType:
-                                  "PSCHEME0IIIIIIIIIIIIIIIIIIIIIIIATYPE",
-                                value: "00000102IIIIIIIIIIIIIIIIIIIIIIIIIIII",
-                              },
-                              {
-                                attributeType:
-                                  "PTYPE000IIIIIIIIIIIIIIIIIIIIIIIATYPE",
-                                value: "00000100IIIIIIIIIIIIIIIIIIIIIIIIIIII",
-                              },
-                              {
-                                attributeType:
-                                  "SERVICE0IIIIIIIIIIIIIIIIIIIIIIIATYPE",
-                                value: "30fe16ed-7514-4e93-a021-50024fe82bdd",
-                              },
-                              {
-                                attributeType:
-                                  "66f3825d-1915-4278-8e5d-b045de8a5db9",
-                                value: "d1063120-26f0-4fbb-9e7d-f74c429de306",
-                              },
-                              {
-                                attributeType:
-                                  "6eb602fc-ae4a-473c-9cfb-f11a60eeb9ac",
-                                value: "b72ed04a-2c4b-4835-9cd2-ed0e841f4b58",
-                              },
-                            ];
-
-                            if (this.registrationCategory === "CLINICAL") {
-                              const personDataAttributeKeys =
-                                Object.keys(this.personDetailsData).filter(
-                                  (key) => key.indexOf("attribute-") === 0
-                                ) || [];
-
-                              const formDataAttributeKeys =
-                                Object.keys(this.formData).filter(
-                                  (key) => key.indexOf("attribute-") === 0
-                                ) || [];
-
-                              personDataAttributeKeys.forEach((key) => {
-                                visAttributes = [
-                                  ...visAttributes,
-                                  {
-                                    attributeType: key.split("attribute-")[1],
-                                    value: this.personDetailsData[key],
-                                  },
-                                ];
-                              });
-
-                              formDataAttributeKeys.forEach((key) => {
-                                visAttributes = [
-                                  ...visAttributes,
-                                  {
-                                    attributeType: key.split("attribute-")[1],
-                                    value: this.formData[key]?.value,
-                                  },
-                                ];
-                              });
-                            }
-
-                            if (this.personDetailsData?.pimaCOVIDLinkDetails) {
-                              visAttributes = [
-                                ...visAttributes,
+                              gender:
+                                this.personDetailsData?.gender.length > 0
+                                  ? this.personDetailsData?.gender
+                                  : "U",
+                              age: this.personDetailsData?.age,
+                              birthdate: this.personDetailsData?.dob
+                                ? this.personDetailsData?.dob
+                                : null,
+                              birthdateEstimated: this.personDetailsData?.dob
+                                ? false
+                                : true,
+                              addresses: [
+                                {
+                                  address1: this.personDetailsData?.address,
+                                  address2: this.personDetailsData?.address,
+                                  address3: this.personDetailsData?.address,
+                                  cityVillage: "",
+                                  country: "",
+                                  postalCode: "",
+                                },
+                              ],
+                              attributes: [
                                 {
                                   attributeType:
-                                    "d4789b04-041f-4cc2-8fce-05fb67e7aefc",
-                                  value: JSON.stringify(
-                                    this.personDetailsData?.pimaCOVIDLinkDetails
-                                  ),
+                                    this.personPhoneAttributeTypeUuid,
+                                  value: this.personDetailsData?.mobileNumber,
                                 },
-                              ];
-                            }
-                            const visitObject = {
-                              patient: this.savingDataResponse?.uuid,
-                              visitType: "54e8ffdc-dea0-4ef0-852f-c23e06d16066",
-                              location: this.currentLocation?.uuid,
-                              indication: "Sample Registration",
-                              attributes:
-                                visAttributes.filter(
-                                  (attribute) => attribute?.value
-                                ) || [],
-                            };
-
-                            this.visitsService
-                              .createVisit(visitObject)
-                              .subscribe((visitResponse) => {
-                                this.savingDataResponse = visitResponse;
-                                if (!visitResponse?.error) {
-                                  this.savingData = true;
-
-                                  // Create encounter with orders
-                                  zip(
-                                    ...this.groupedTestOrdersByDepartments.map(
-                                      (groupedTestOrders) => {
-                                        const orders = groupedTestOrders.map(
-                                          (testOrder) => {
-                                            // TODO: Remove hard coded order type
-                                            return {
-                                              concept: testOrder?.value,
-                                              orderType:
-                                                "52a447d3-a64a-11e3-9aeb-50e549534c5e", // TODO: Find a way to soft code this
-                                              action: "NEW",
-                                              orderer: this.provider?.uuid,
-                                              patient: patientResponse?.uuid,
-                                              careSetting: "OUTPATIENT",
-                                              urgency: "ROUTINE", // TODO: Change to reflect users input
-                                              instructions: "",
-                                              type: "testorder",
-                                            };
-                                          }
-                                        );
-
-                                        let obs = [];
-                                        if (this.formData["notes"]?.value) {
-                                          obs = [
-                                            {
-                                              concept:
-                                                "3a010ff3-6361-4141-9f4e-dd863016db5a",
-                                              value:
-                                                this.formData["notes"]?.value,
-                                            },
-                                          ];
-                                        }
-                                        const encounterObject = {
-                                          visit: visitResponse?.uuid,
-                                          patient: patientResponse?.uuid,
-                                          encounterType:
-                                            "9b46d3fe-1c3e-4836-a760-f38d286b578b",
-                                          location: this.currentLocation?.uuid,
-                                          orders,
-                                          obs,
-                                          encounterProviders: [
-                                            {
-                                              provider: this.provider?.uuid,
-                                              encounterRole:
-                                                ICARE_CONFIG.encounterRole,
-                                            },
-                                          ],
+                                {
+                                  attributeType:
+                                    this.personEmailAttributeTypeUuid,
+                                  value: this.personDetailsData?.email,
+                                },
+                              ]?.filter(
+                                (personAttribute: any) => personAttribute?.value
+                              ),
+                            },
+                            identifiers:
+                              this.registrationCategory?.refKey !==
+                              "non-clinical"
+                                ? (patientIdentifierTypes || [])
+                                    .map((personIdentifierType) => {
+                                      if (
+                                        personIdentifierType.id ===
+                                        this.preferredPersonIdentifier
+                                      ) {
+                                        return {
+                                          identifier: this.personDetailsData[
+                                            "mrn"
+                                          ]
+                                            ? this.personDetailsData["mrn"]
+                                            : this.personDetailsData[
+                                                personIdentifierType.id
+                                              ],
+                                          identifierType:
+                                            personIdentifierType.id,
+                                          location:
+                                            this.currentLocation?.uuid ||
+                                            "7fdfa2cb-bc95-405a-88c6-32b7673c0453", // TODO: Find a way to softcode this,
+                                          preferred: true,
                                         };
-                                        return this.labOrdersService.createLabOrdersViaEncounter(
-                                          encounterObject
-                                        );
+                                      } else {
+                                        return {
+                                          identifier:
+                                            this.personDetailsData[
+                                              personIdentifierType.id
+                                            ],
+                                          identifierType:
+                                            personIdentifierType.id,
+                                          location:
+                                            this.currentLocation?.uuid ||
+                                            "7fdfa2cb-bc95-405a-88c6-32b7673c0453", // TODO: Find a way to softcode this,
+                                          preferred: false,
+                                        };
                                       }
+                                    })
+                                    .filter(
+                                      (patientIdentifier) =>
+                                        patientIdentifier?.identifier
                                     )
-                                  ).subscribe((responses: any[]) => {
-                                    if (responses) {
-                                      responses.forEach(
-                                        (encounterResponse, index) => {
-                                          if (!encounterResponse?.error) {
-                                            this.savingData = true;
-                                            // Get orders details for allocations
-                                            const orderUuids =
-                                              encounterResponse?.orders.map(
-                                                (order) => {
-                                                  return order?.uuid;
-                                                }
-                                              );
-                                            this.orderService
-                                              .getOrdersByUuids(orderUuids)
-                                              .subscribe((ordersResponse) => {
-                                                if (ordersResponse) {
-                                                  const configs = {
-                                                    otherContainer: {
-                                                      id: "eb21ff23-a627-4a62-8bd0-efdc1db2ebb5",
-                                                      uuid: "eb21ff23-a627-4a62-8bd0-efdc1db2ebb5",
-                                                    },
-                                                  };
+                                : [
+                                    {
+                                      identifier: identifierResponse[0],
+                                      identifierType:
+                                        this.preferredPersonIdentifier,
+                                      location:
+                                        this.currentLocation?.uuid ||
+                                        "7fdfa2cb-bc95-405a-88c6-32b7673c0453", // TODO: Find a way to softcode this
+                                      preferred: true,
+                                    },
+                                  ],
+                          };
+                          this.savingData = true;
+                          this.registrationService
+                            .createPatient(
+                              this.patientPayload,
+                              this.personDetailsData?.patientUuid
+                            )
+                            .subscribe((patientResponse) => {
+                              this.savingDataResponse = patientResponse;
+                              if (!patientResponse?.error) {
+                                // TODO: SOftcode visit type
+                                let visAttributes = [
+                                  {
+                                    attributeType:
+                                      "PSCHEME0IIIIIIIIIIIIIIIIIIIIIIIATYPE",
+                                    value:
+                                      "00000102IIIIIIIIIIIIIIIIIIIIIIIIIIII",
+                                  },
+                                  {
+                                    attributeType:
+                                      "PTYPE000IIIIIIIIIIIIIIIIIIIIIIIATYPE",
+                                    value:
+                                      "00000100IIIIIIIIIIIIIIIIIIIIIIIIIIII",
+                                  },
+                                  {
+                                    attributeType:
+                                      "SERVICE0IIIIIIIIIIIIIIIIIIIIIIIATYPE",
+                                    value:
+                                      "30fe16ed-7514-4e93-a021-50024fe82bdd",
+                                  },
+                                  {
+                                    attributeType:
+                                      "66f3825d-1915-4278-8e5d-b045de8a5db9",
+                                    value:
+                                      "d1063120-26f0-4fbb-9e7d-f74c429de306",
+                                  },
+                                  {
+                                    attributeType:
+                                      "6eb602fc-ae4a-473c-9cfb-f11a60eeb9ac",
+                                    value:
+                                      "b72ed04a-2c4b-4835-9cd2-ed0e841f4b58",
+                                  },
+                                ];
 
-                                                  const keyedOrders = keyBy(
-                                                    ordersResponse,
-                                                    "uuid"
-                                                  );
+                                if (
+                                  this.registrationCategory?.refKey !==
+                                  "non-clinical"
+                                ) {
+                                  const personDataAttributeKeys =
+                                    Object.keys(this.personDetailsData).filter(
+                                      (key) => key.indexOf("attribute-") === 0
+                                    ) || [];
 
-                                                  this.samplesService
-                                                    .getSampleLabel()
-                                                    .subscribe(
-                                                      (sampleLabelResponse) => {
-                                                        if (
-                                                          sampleLabelResponse
-                                                        ) {
-                                                          // Create sample
-                                                          // TODO: Softcode base characters (NPHL)
-                                                          const sampleLabel =
-                                                            "NPHL" +
-                                                            this.formatToSpecifiedChars(
-                                                              sampleLabelResponse
-                                                            );
-                                                          const sample = {
-                                                            visit: {
-                                                              uuid: visitResponse?.uuid,
-                                                            },
-                                                            label: sampleLabel,
-                                                            concept: {
-                                                              uuid: this
-                                                                .groupedTestOrdersByDepartments[
-                                                                index
-                                                              ][0]
-                                                                ?.departmentUuid,
-                                                            },
-                                                            orders:
-                                                              encounterResponse?.orders.map(
-                                                                (order) => {
-                                                                  return {
-                                                                    uuid: order?.uuid,
-                                                                  };
-                                                                }
+                                  const formDataAttributeKeys =
+                                    Object.keys(this.formData).filter(
+                                      (key) => key.indexOf("attribute-") === 0
+                                    ) || [];
+
+                                  personDataAttributeKeys.forEach((key) => {
+                                    visAttributes = [
+                                      ...visAttributes,
+                                      {
+                                        attributeType:
+                                          key.split("attribute-")[1],
+                                        value: this.personDetailsData[key],
+                                      },
+                                    ];
+                                  });
+
+                                  formDataAttributeKeys.forEach((key) => {
+                                    visAttributes = [
+                                      ...visAttributes,
+                                      {
+                                        attributeType:
+                                          key.split("attribute-")[1],
+                                        value: this.formData[key]?.value
+                                          ? this.formData[key]?.value
+                                          : "-",
+                                      },
+                                    ];
+                                  });
+                                }
+
+                                if (
+                                  this.personDetailsData?.pimaCOVIDLinkDetails
+                                ) {
+                                  visAttributes = [
+                                    ...visAttributes,
+                                    {
+                                      attributeType:
+                                        "0acd3180-710d-4417-8768-97bc45a02395",
+                                      value: JSON.stringify({
+                                        program:
+                                          this.personDetailsData
+                                            ?.pimaCOVIDLinkDetails?.program,
+                                        enrollment:
+                                          this.personDetailsData
+                                            ?.pimaCOVIDLinkDetails?.enrollment,
+                                        trackedEntityInstance:
+                                          this.personDetailsData
+                                            ?.pimaCOVIDLinkDetails
+                                            ?.trackedEntityInstance,
+                                        orgUnit:
+                                          this.personDetailsData
+                                            ?.pimaCOVIDLinkDetails?.orgUnit,
+                                      }),
+                                    },
+                                  ];
+                                }
+                                const visitObject = {
+                                  patient: this.savingDataResponse?.uuid,
+                                  visitType:
+                                    "54e8ffdc-dea0-4ef0-852f-c23e06d16066",
+                                  location: this.currentLocation?.uuid,
+                                  indication: "Sample Registration",
+                                  attributes:
+                                    visAttributes.filter(
+                                      (attribute) => attribute?.value
+                                    ) || [],
+                                };
+
+                                this.visitsService
+                                  .createVisit(visitObject)
+                                  .subscribe((visitResponse) => {
+                                    this.savingDataResponse = visitResponse;
+                                    if (!visitResponse?.error) {
+                                      this.savingData = true;
+
+                                      // Create encounter with orders
+                                      zip(
+                                        ...this.groupedTestOrdersByDepartments?.map(
+                                          (groupedTestOrders) => {
+                                            const orders = uniqBy(
+                                              groupedTestOrders,
+                                              "testOrder"
+                                            ).map((testOrder) => {
+                                              // TODO: Remove hard coded order type
+                                              return {
+                                                concept: testOrder?.testOrder,
+                                                orderType:
+                                                  "52a447d3-a64a-11e3-9aeb-50e549534c5e", // TODO: Find a way to soft code this
+                                                action: "NEW",
+                                                orderer: this.provider?.uuid,
+                                                patient: patientResponse?.uuid,
+                                                careSetting: "OUTPATIENT",
+                                                urgency: "ROUTINE", // TODO: Change to reflect users input
+                                                instructions: "",
+                                                type: "testorder",
+                                              };
+                                            });
+
+                                            let obs = [];
+                                            if (this.formData["notes"]?.value) {
+                                              obs = [
+                                                {
+                                                  concept:
+                                                    "3a010ff3-6361-4141-9f4e-dd863016db5a",
+                                                  value:
+                                                    this.formData["notes"]
+                                                      ?.value,
+                                                },
+                                              ];
+                                            }
+                                            let encounterObjects = [
+                                              {
+                                                visit: visitResponse?.uuid,
+                                                patient: patientResponse?.uuid,
+                                                encounterType:
+                                                  "9b46d3fe-1c3e-4836-a760-f38d286b578b",
+                                                location:
+                                                  this.currentLocation?.uuid,
+                                                orders,
+                                                obs:
+                                                  obs?.filter(
+                                                    (observation) =>
+                                                      observation?.value
+                                                  ) || [],
+                                                encounterProviders: [
+                                                  {
+                                                    provider:
+                                                      this.provider?.uuid,
+                                                    encounterRole:
+                                                      ICARE_CONFIG.encounterRole,
+                                                  },
+                                                ],
+                                              },
+                                            ];
+                                            encounterObjects = [
+                                              ...encounterObjects,
+                                              ...Object.keys(
+                                                this.generalObservationsData
+                                              ).map((key) => {
+                                                return {
+                                                  visit: visitResponse?.uuid,
+                                                  patient:
+                                                    patientResponse?.uuid,
+                                                  encounterType:
+                                                    "9b46d3fe-1c3e-4836-a760-f38d286b578b",
+                                                  location:
+                                                    this.currentLocation?.uuid,
+                                                  orders: [],
+                                                  obs: (
+                                                    this.generalObservationsData[
+                                                      key
+                                                    ]?.map((obs) =>
+                                                      omit(obs, "form")
+                                                    ) || []
+                                                  )
+                                                    .filter((obs) => obs?.value)
+                                                    .map((obsValue) => {
+                                                      return {
+                                                        ...obsValue,
+                                                        value:
+                                                          obsValue?.value?.indexOf(
+                                                            "GMT+"
+                                                          ) === -1
+                                                            ? obsValue?.value
+                                                            : formatDateToYYMMDD(
+                                                                new Date(
+                                                                  obsValue?.value
+                                                                )
+                                                              ) +
+                                                              " " +
+                                                              this.formatDimeChars(
+                                                                new Date(
+                                                                  obsValue?.value
+                                                                )
+                                                                  .getHours()
+                                                                  .toString()
+                                                              ) +
+                                                              ":" +
+                                                              this.formatDimeChars(
+                                                                new Date(
+                                                                  obsValue?.value
+                                                                )
+                                                                  .getMinutes()
+                                                                  .toString()
                                                               ),
-                                                          };
-                                                          // Create sample
-                                                          this.samplesService
-                                                            .createLabSample(
-                                                              sample
-                                                            )
-                                                            .subscribe(
-                                                              (
-                                                                sampleResponse
-                                                              ) => {
-                                                                this.savingDataResponse =
-                                                                  sampleResponse;
-                                                                this.sampleLabelsUsedDetails =
-                                                                  [
-                                                                    ...this
-                                                                      .sampleLabelsUsedDetails,
+                                                      };
+                                                    }),
+                                                  encounterProviders: [
+                                                    {
+                                                      provider:
+                                                        this.provider?.uuid,
+                                                      encounterRole:
+                                                        ICARE_CONFIG.encounterRole,
+                                                    },
+                                                  ],
+                                                  form: key,
+                                                };
+                                              }),
+                                            ];
+                                            return zip(
+                                              ...encounterObjects.map(
+                                                (encounterObject) =>
+                                                  this.labOrdersService.createLabOrdersViaEncounter(
+                                                    encounterObject
+                                                  )
+                                              )
+                                            ).pipe(
+                                              map((responses) => {
+                                                return responses[0];
+                                              })
+                                            );
+                                          }
+                                        )
+                                      ).subscribe((responses: any[]) => {
+                                        if (responses) {
+                                          // console.log(
+                                          //   "responsesjsjsj",
+                                          //   flatten(responses)
+                                          // );
+                                          responses.forEach(
+                                            (encounterResponse, index) => {
+                                              if (!encounterResponse?.error) {
+                                                this.savingData = true;
+                                                // Get orders details for allocations
+                                                const orderUuids =
+                                                  encounterResponse?.orders.map(
+                                                    (order) => {
+                                                      return order?.uuid;
+                                                    }
+                                                  );
+                                                this.orderService
+                                                  .getOrdersByUuids(orderUuids)
+                                                  .subscribe(
+                                                    (ordersResponse) => {
+                                                      if (ordersResponse) {
+                                                        const configs = {
+                                                          otherContainer: {
+                                                            id: "eb21ff23-a627-4a62-8bd0-efdc1db2ebb5",
+                                                            uuid: "eb21ff23-a627-4a62-8bd0-efdc1db2ebb5",
+                                                          },
+                                                        };
+
+                                                        const keyedOrders =
+                                                          keyBy(
+                                                            ordersResponse,
+                                                            "uuid"
+                                                          );
+                                                        this.samplesService
+                                                          .getIncreamentalSampleLabel()
+                                                          .subscribe(
+                                                            (sampleLabel) => {
+                                                              if (sampleLabel) {
+                                                                const sample = {
+                                                                  visit: {
+                                                                    uuid: visitResponse?.uuid,
+                                                                  },
+                                                                  label:
+                                                                    sampleLabel,
+                                                                  concept: {
+                                                                    uuid: (this.groupedTestOrdersByDepartments[
+                                                                      index
+                                                                    ]?.filter(
+                                                                      (dpt) =>
+                                                                        dpt?.systemName?.indexOf(
+                                                                          "LAB_DEPARTMENT:"
+                                                                        ) > -1
+                                                                    ) || [])[0]
+                                                                      ?.uuid,
+                                                                  },
+                                                                  specimenSource:
                                                                     {
-                                                                      ...sample,
+                                                                      uuid: this
+                                                                        .selectedSpecimenUuid,
                                                                     },
-                                                                  ];
-
-                                                                // Create sample allocations
-
-                                                                if (
-                                                                  sampleResponse
-                                                                ) {
-                                                                  let ordersWithConceptsDetails =
-                                                                    [];
-
-                                                                  sampleResponse?.orders?.forEach(
-                                                                    (order) => {
-                                                                      ordersWithConceptsDetails =
+                                                                  location: {
+                                                                    uuid: this
+                                                                      .currentLabLocation
+                                                                      ?.uuid,
+                                                                  },
+                                                                  orders:
+                                                                    encounterResponse?.orders.map(
+                                                                      (
+                                                                        order
+                                                                      ) => {
+                                                                        return {
+                                                                          uuid: order?.uuid,
+                                                                        };
+                                                                      }
+                                                                    ),
+                                                                };
+                                                                // Create sample
+                                                                this.samplesService
+                                                                  .createLabSample(
+                                                                    sample
+                                                                  )
+                                                                  .subscribe(
+                                                                    (
+                                                                      sampleResponse
+                                                                    ) => {
+                                                                      this.savingDataResponse =
+                                                                        sampleResponse;
+                                                                      this.sampleLabelsUsedDetails =
                                                                         [
-                                                                          ...ordersWithConceptsDetails,
+                                                                          ...this
+                                                                            .sampleLabelsUsedDetails,
                                                                           {
-                                                                            sample:
-                                                                              sampleResponse,
-                                                                            order:
-                                                                              {
-                                                                                sample:
-                                                                                  sampleResponse,
-                                                                                ...keyedOrders[
-                                                                                  order
-                                                                                    ?.uuid
-                                                                                ],
-                                                                              },
+                                                                            ...sample,
                                                                           },
                                                                         ];
-                                                                    }
-                                                                  );
+                                                                      // TODO: Find a better way to control three labels to be printed
 
-                                                                  this.savingData =
-                                                                    this
-                                                                      .formData[
-                                                                      "agency"
-                                                                    ]?.value
-                                                                      ? true
-                                                                      : false;
-                                                                  let statuses =
-                                                                    [];
-                                                                  if (
-                                                                    this
-                                                                      .formData[
-                                                                      "agency"
-                                                                    ]?.value
-                                                                  ) {
-                                                                    const agencyStatus =
-                                                                      {
-                                                                        sample:
-                                                                          {
-                                                                            uuid: sampleResponse?.uuid,
-                                                                          },
-                                                                        user: {
-                                                                          uuid: localStorage.getItem(
-                                                                            "userUuid"
-                                                                          ),
-                                                                        },
-                                                                        remarks:
+                                                                      this.sampleLabelsUsedDetails =
+                                                                        [
+                                                                          ...this
+                                                                            .sampleLabelsUsedDetails,
+                                                                          sample,
+                                                                        ];
+                                                                      this.sampleLabelsUsedDetails =
+                                                                        [
+                                                                          ...this
+                                                                            .sampleLabelsUsedDetails,
+                                                                          sample,
+                                                                        ];
+
+                                                                      // Create sample allocations
+
+                                                                      if (
+                                                                        sampleResponse
+                                                                      ) {
+                                                                        let ordersWithConceptsDetails =
+                                                                          [];
+
+                                                                        sampleResponse?.orders?.forEach(
+                                                                          (
+                                                                            order
+                                                                          ) => {
+                                                                            ordersWithConceptsDetails =
+                                                                              [
+                                                                                ...ordersWithConceptsDetails,
+                                                                                {
+                                                                                  sample:
+                                                                                    sampleResponse,
+                                                                                  order:
+                                                                                    {
+                                                                                      sample:
+                                                                                        sampleResponse,
+                                                                                      ...keyedOrders[
+                                                                                        order
+                                                                                          ?.uuid
+                                                                                      ],
+                                                                                    },
+                                                                                },
+                                                                              ];
+                                                                          }
+                                                                        );
+
+                                                                        this.savingData =
                                                                           this
                                                                             .formData[
                                                                             "agency"
                                                                           ]
-                                                                            ?.value,
-                                                                        status:
-                                                                          "PRIORITY",
-                                                                      };
-                                                                    statuses = [
-                                                                      ...statuses,
-                                                                      agencyStatus,
-                                                                    ];
-                                                                  }
-
-                                                                  if (
-                                                                    this
-                                                                      .formData[
-                                                                      "receivedOn"
-                                                                    ]?.value
-                                                                  ) {
-                                                                    const receivedOnStatus =
-                                                                      {
-                                                                        sample:
-                                                                          {
-                                                                            uuid: sampleResponse?.uuid,
-                                                                          },
-                                                                        user: {
-                                                                          uuid: localStorage.getItem(
-                                                                            "userUuid"
-                                                                          ),
-                                                                        },
-                                                                        remarks:
-                                                                          "RECEIVED_ON",
-                                                                        status:
-                                                                          "RECEIVED_ON",
-                                                                        timestamp:
-                                                                          new Date(
-                                                                            `${moment(
-                                                                              this
-                                                                                .formData[
-                                                                                "receivedOn"
-                                                                              ]
-                                                                                ?.value
-                                                                            ).format(
-                                                                              "YYYY-MM-DD"
-                                                                            )}T${
-                                                                              this
-                                                                                .formData[
-                                                                                "receivedAt"
-                                                                              ]
-                                                                                ?.value
-                                                                            }:00.001Z`
-                                                                          ).getTime(),
-                                                                      };
-                                                                    statuses = [
-                                                                      ...statuses,
-                                                                      receivedOnStatus,
-                                                                    ];
-                                                                  }
-
-                                                                  if (
-                                                                    this
-                                                                      .formData[
-                                                                      "condition"
-                                                                    ]?.value
-                                                                  ) {
-                                                                    const receivedOnStatus =
-                                                                      {
-                                                                        sample:
-                                                                          {
-                                                                            uuid: sampleResponse?.uuid,
-                                                                          },
-                                                                        user: {
-                                                                          uuid: localStorage.getItem(
-                                                                            "userUuid"
-                                                                          ),
-                                                                        },
-                                                                        remarks:
+                                                                            ?.value
+                                                                            ? true
+                                                                            : false;
+                                                                        let statuses =
+                                                                          [];
+                                                                        if (
                                                                           this
                                                                             .formData[
-                                                                            "condition"
-                                                                          ]
-                                                                            ?.value,
-                                                                        status:
-                                                                          "CONDITION",
-                                                                      };
-                                                                    statuses = [
-                                                                      ...statuses,
-                                                                      receivedOnStatus,
-                                                                    ];
-                                                                  }
-
-                                                                  const receivedByStatus =
-                                                                    {
-                                                                      sample: {
-                                                                        uuid: sampleResponse?.uuid,
-                                                                      },
-                                                                      user: {
-                                                                        uuid: this
-                                                                          .formData[
-                                                                          "receivedBy"
-                                                                        ]?.value
-                                                                          ? this
-                                                                              .formData[
-                                                                              "receivedBy"
-                                                                            ]
-                                                                              ?.value
-                                                                          : localStorage.getItem(
-                                                                              "userUuid"
-                                                                            ),
-                                                                      },
-                                                                      remarks:
-                                                                        "RECEIVED_BY",
-                                                                      status:
-                                                                        "RECEIVED_BY",
-                                                                      timestamp:
-                                                                        new Date(
-                                                                          (this
-                                                                            .formData[
-                                                                            "receivedOn"
+                                                                            "agency"
                                                                           ]
                                                                             ?.value
-                                                                            ? `${moment(
+                                                                        ) {
+                                                                          const agencyStatus =
+                                                                            {
+                                                                              sample:
+                                                                                {
+                                                                                  uuid: sampleResponse?.uuid,
+                                                                                },
+                                                                              user: {
+                                                                                uuid: localStorage.getItem(
+                                                                                  "userUuid"
+                                                                                ),
+                                                                              },
+                                                                              remarks:
                                                                                 this
                                                                                   .formData[
-                                                                                  "receivedOn"
+                                                                                  "agency"
                                                                                 ]
-                                                                                  ?.value
-                                                                              ).format(
-                                                                                "YYYY-MM-DD"
-                                                                              )}`
-                                                                            : formatDateToYYMMDD(
-                                                                                new Date()
-                                                                              )
-                                                                          ).toString() +
-                                                                            "T" +
-                                                                            (this
-                                                                              .formData[
-                                                                              "receivedAt"
-                                                                            ]
-                                                                              ?.value
-                                                                              ? `${this.formData["receivedAt"]?.value}:00.001`
-                                                                              : "00:00:00:001Z")
-                                                                        ).getTime(),
-                                                                    };
-                                                                  statuses = [
-                                                                    ...statuses,
-                                                                    receivedByStatus,
-                                                                  ];
-
-                                                                  if (
-                                                                    this
-                                                                      .formData[
-                                                                      "collectedBy"
-                                                                    ]?.value ||
-                                                                    this
-                                                                      .formData[
-                                                                      "collectedOn"
-                                                                    ]?.value
-                                                                  ) {
-                                                                    const collectedByStatus =
-                                                                      {
-                                                                        sample:
-                                                                          {
-                                                                            uuid: sampleResponse?.uuid,
-                                                                          },
-                                                                        user: {
-                                                                          uuid: localStorage.getItem(
-                                                                            "userUuid"
-                                                                          ),
-                                                                        },
-                                                                        remarks:
-                                                                          this
-                                                                            .formData[
-                                                                            "collectedBy"
-                                                                          ]
-                                                                            ?.value ||
-                                                                          "NO COLLECTOR SPECIFIED",
-                                                                        status:
-                                                                          "COLLECTED_BY",
-                                                                        timestamp:
-                                                                          new Date(
-                                                                            (this
-                                                                              .formData[
-                                                                              "collectedOn"
-                                                                            ]
-                                                                              ?.value
-                                                                              ? `${moment(
-                                                                                  this
-                                                                                    .formData[
-                                                                                    "collectedOn"
-                                                                                  ]
-                                                                                    ?.value
-                                                                                ).format(
-                                                                                  "YYYY-MM-DD"
-                                                                                )}`
-                                                                              : formatDateToYYMMDD(
-                                                                                  new Date()
-                                                                                )
-                                                                            ).toString() +
-                                                                              "T" +
-                                                                              (this
-                                                                                .formData[
-                                                                                "collectedAt"
-                                                                              ]
-                                                                                ?.value
-                                                                                ? `${this.formData["collectedAt"]?.value}:00.001`
-                                                                                : "00:00:00:001Z")
-                                                                          ).getTime(),
-                                                                      };
-                                                                    statuses = [
-                                                                      ...statuses,
-                                                                      collectedByStatus,
-                                                                    ];
-                                                                  }
-
-                                                                  if (
-                                                                    (this
-                                                                      .formData[
-                                                                      "broughtBy"
-                                                                    ]?.value ||
-                                                                      this
-                                                                        .formData[
-                                                                        "broughtOn"
-                                                                      ]
-                                                                        ?.value) &&
-                                                                    this
-                                                                      .formData[
-                                                                      "broughtAt"
-                                                                    ]?.value
-                                                                  ) {
-                                                                    const broughtdByStatus =
-                                                                      {
-                                                                        sample:
-                                                                          {
-                                                                            uuid: sampleResponse?.uuid,
-                                                                          },
-                                                                        user: {
-                                                                          uuid: localStorage.getItem(
-                                                                            "userUuid"
-                                                                          ),
-                                                                        },
-                                                                        remarks:
-                                                                          this
-                                                                            .formData[
-                                                                            "broughtBy"
-                                                                          ]
-                                                                            ?.value ||
-                                                                          "NO PERSON SPECIFIED",
-                                                                        status:
-                                                                          "DELIVERED_BY",
-                                                                        timestamp:
-                                                                          new Date(
-                                                                            (this
-                                                                              .formData[
-                                                                              "broughtOn"
-                                                                            ]
-                                                                              ?.value
-                                                                              ? `${moment(
-                                                                                  this
-                                                                                    .formData[
-                                                                                    "broughtOn"
-                                                                                  ]
-                                                                                    ?.value
-                                                                                ).format(
-                                                                                  "YYYY-MM-DD"
-                                                                                )}`
-                                                                              : formatDateToYYMMDD(
-                                                                                  new Date()
-                                                                                )) +
-                                                                              "T" +
-                                                                              (this
-                                                                                .formData[
-                                                                                "broughtAt"
-                                                                              ]
-                                                                                ?.value
-                                                                                ? `${this.formData["broughtAt"]?.value}:00.001`
-                                                                                : "00:00:00:001Z")
-                                                                          ).getTime(),
-                                                                      };
-                                                                    statuses = [
-                                                                      ...statuses,
-                                                                      broughtdByStatus,
-                                                                    ];
-                                                                  }
-
-                                                                  statuses = [
-                                                                    ...statuses,
-                                                                    {
-                                                                      sample: {
-                                                                        uuid: sampleResponse?.uuid,
-                                                                      },
-                                                                      user: {
-                                                                        uuid: localStorage.getItem(
-                                                                          "userUuid"
-                                                                        ),
-                                                                      },
-                                                                      category:
-                                                                        "SAMPLE_REGISTRATION_CATEGORY",
-                                                                      remarks:
-                                                                        "Sample registration form type reference",
-                                                                      status:
-                                                                        this
-                                                                          .registrationCategory,
-                                                                    },
-                                                                  ];
-
-                                                                  console.log(
-                                                                    "statuses",
-                                                                    statuses
-                                                                  );
-
-                                                                  if (
-                                                                    statuses?.length >
-                                                                    0
-                                                                  ) {
-                                                                    zip(
-                                                                      this.samplesService.saveTestContainerAllocation(
-                                                                        ordersWithConceptsDetails,
-                                                                        configs
-                                                                      ),
-                                                                      this.samplesService.setMultipleSampleStatuses(
-                                                                        statuses
-                                                                      )
-                                                                    ).subscribe(
-                                                                      (
-                                                                        sampleStatusResponse
-                                                                      ) => {
-                                                                        this.savingDataResponse =
-                                                                          sampleStatusResponse;
-                                                                        if (
-                                                                          sampleStatusResponse
-                                                                        ) {
-                                                                          const data =
-                                                                            {
-                                                                              identifier:
-                                                                                this
-                                                                                  .currentSampleLabel,
-                                                                              sample:
-                                                                                sampleResponse,
-                                                                              sampleLabelsUsedDetails:
-                                                                                this
-                                                                                  .sampleLabelsUsedDetails,
+                                                                                  ?.value,
+                                                                              category:
+                                                                                "PRIORITY",
+                                                                              status:
+                                                                                "PRIORITY",
                                                                             };
-                                                                          this.dialog
-                                                                            .open(
-                                                                              SampleRegistrationFinalizationComponent,
-                                                                              {
-                                                                                height:
-                                                                                  forRejection
-                                                                                    ? "200px"
-                                                                                    : "100px",
-                                                                                width:
-                                                                                  "30%",
-                                                                                data: {
-                                                                                  ...data,
-                                                                                  forRejection:
-                                                                                    forRejection,
-                                                                                  popupHeader:
-                                                                                    forRejection
-                                                                                      ? "Sample Rejection"
-                                                                                      : "Sample Saved",
+                                                                          statuses =
+                                                                            [
+                                                                              ...statuses,
+                                                                              agencyStatus,
+                                                                            ];
+                                                                        }
+
+                                                                        statuses =
+                                                                          [
+                                                                            ...statuses,
+                                                                            {
+                                                                              sample:
+                                                                                {
+                                                                                  uuid: sampleResponse?.uuid,
                                                                                 },
-                                                                                disableClose:
-                                                                                  false,
-                                                                                panelClass:
-                                                                                  "custom-dialog-container",
-                                                                              }
-                                                                            )
-                                                                            .afterClosed()
-                                                                            .subscribe(
-                                                                              () => {
-                                                                                this.openBarCodeDialog(
-                                                                                  data
-                                                                                );
-                                                                                this.isRegistrationReady =
-                                                                                  false;
-                                                                                setTimeout(
-                                                                                  () => {
-                                                                                    this.isRegistrationReady =
-                                                                                      true;
+                                                                              user: {
+                                                                                uuid: localStorage.getItem(
+                                                                                  "userUuid"
+                                                                                ),
+                                                                              },
+                                                                              category:
+                                                                                "SAMPLE_REGISTRATION_CATEGORY",
+                                                                              remarks:
+                                                                                "Sample registration form type reference",
+                                                                              status:
+                                                                                this.registrationCategory?.refKey?.toUpperCase(),
+                                                                            },
+                                                                          ];
+
+                                                                        if (
+                                                                          this
+                                                                            .referralData
+                                                                        ) {
+                                                                          statuses =
+                                                                            [
+                                                                              ...statuses,
+                                                                              {
+                                                                                ...this
+                                                                                  .referralData,
+                                                                                sample:
+                                                                                  {
+                                                                                    uuid: sampleResponse?.uuid,
                                                                                   },
-                                                                                  200
-                                                                                );
+                                                                                user: {
+                                                                                  uuid: localStorage.getItem(
+                                                                                    "userUuid"
+                                                                                  ),
+                                                                                },
+                                                                              },
+                                                                            ];
+                                                                        }
+
+                                                                        if (
+                                                                          this
+                                                                            .personDetailsData
+                                                                            ?.pimaCOVIDLinkDetails
+                                                                        ) {
+                                                                          statuses =
+                                                                            [
+                                                                              ...statuses,
+                                                                              {
+                                                                                sample:
+                                                                                  {
+                                                                                    uuid: sampleResponse?.uuid,
+                                                                                  },
+                                                                                user: {
+                                                                                  uuid: localStorage.getItem(
+                                                                                    "userUuid"
+                                                                                  ),
+                                                                                },
+                                                                                category:
+                                                                                  "INTEGRATION_PIMACOVID",
+                                                                                remarks:
+                                                                                  "Sample registration from external systems",
+                                                                                status:
+                                                                                  "INTEGRATION WITH PimaCOVID",
+                                                                              },
+                                                                            ];
+                                                                        }
+
+                                                                        statuses =
+                                                                          [
+                                                                            ...statuses,
+                                                                            {
+                                                                              sample:
+                                                                                {
+                                                                                  uuid: sampleResponse?.uuid,
+                                                                                },
+                                                                              user: {
+                                                                                uuid: localStorage.getItem(
+                                                                                  "userUuid"
+                                                                                ),
+                                                                              },
+                                                                              remarks:
+                                                                                "Sample collection",
+                                                                              category:
+                                                                                "COLLECTED",
+                                                                              status:
+                                                                                "COLLECTED",
+                                                                            },
+                                                                          ];
+
+                                                                        if (
+                                                                          statuses?.length >
+                                                                          0
+                                                                        ) {
+                                                                          zip(
+                                                                            this.samplesService.setMultipleSampleStatuses(
+                                                                              statuses
+                                                                            )
+                                                                          ).subscribe(
+                                                                            (
+                                                                              sampleStatusResponse
+                                                                            ) => {
+                                                                              this.savingDataResponse =
+                                                                                sampleStatusResponse;
+                                                                              if (
+                                                                                sampleStatusResponse
+                                                                              ) {
+                                                                                const data =
+                                                                                  {
+                                                                                    identifier:
+                                                                                      this
+                                                                                        .currentSampleLabel,
+                                                                                    sample:
+                                                                                      sampleResponse,
+                                                                                    sampleLabelsUsedDetails:
+                                                                                      this
+                                                                                        .sampleLabelsUsedDetails,
+                                                                                    isLis:
+                                                                                      this
+                                                                                        .LISConfigurations
+                                                                                        ?.isLIS,
+                                                                                  };
+                                                                                this.dialog
+                                                                                  .open(
+                                                                                    SampleRegistrationFinalizationComponent,
+                                                                                    {
+                                                                                      height:
+                                                                                        forRejection
+                                                                                          ? "200px"
+                                                                                          : "100px",
+                                                                                      width:
+                                                                                        "30%",
+                                                                                      data: {
+                                                                                        ...data,
+                                                                                        forRejection:
+                                                                                          forRejection,
+                                                                                        popupHeader:
+                                                                                          forRejection
+                                                                                            ? "Sample Rejection"
+                                                                                            : "Sample Saved",
+                                                                                      },
+                                                                                      disableClose:
+                                                                                        true,
+                                                                                      panelClass:
+                                                                                        "custom-dialog-container",
+                                                                                    }
+                                                                                  )
+                                                                                  .afterClosed()
+                                                                                  .subscribe(
+                                                                                    () => {
+                                                                                      this.openBarCodeDialog(
+                                                                                        data
+                                                                                      );
+                                                                                      this.isRegistrationReady =
+                                                                                        false;
+                                                                                      setTimeout(
+                                                                                        () => {
+                                                                                          this.isRegistrationReady =
+                                                                                            true;
+                                                                                        },
+                                                                                        200
+                                                                                      );
+                                                                                    }
+                                                                                  );
+                                                                                this.savingData =
+                                                                                  false;
                                                                               }
-                                                                            );
-                                                                          this.savingData =
-                                                                            false;
+                                                                            }
+                                                                          );
                                                                         }
                                                                       }
-                                                                    );
-                                                                  }
-                                                                }
+                                                                    }
+                                                                  );
                                                               }
-                                                            );
+                                                            }
+                                                          );
+                                                      }
+                                                    }
+                                                  );
+
+                                                // Set diagnosis if any
+
+                                                if (
+                                                  encounterResponse?.uuid &&
+                                                  this.formData["icd10"]
+                                                ) {
+                                                  const diagnosisData = {
+                                                    diagnosis: {
+                                                      coded:
+                                                        this.formData["icd10"]
+                                                          ?.value,
+                                                      nonCoded:
+                                                        this.formData[
+                                                          "diagnosis"
+                                                        ]?.value,
+                                                      specificName: null,
+                                                    },
+                                                    rank: 0,
+                                                    condition: null,
+                                                    certainty: "PROVISIONAL",
+                                                    patient:
+                                                      patientResponse?.uuid,
+                                                    encounter:
+                                                      encounterResponse?.uuid,
+                                                  };
+
+                                                  this.diagnosisService
+                                                    .addDiagnosis(diagnosisData)
+                                                    .subscribe(
+                                                      (diagnosisResponse) => {
+                                                        if (diagnosisResponse) {
+                                                          this.savingData =
+                                                            false;
                                                         }
                                                       }
                                                     );
                                                 }
-                                              });
-
-                                            // Set diagnosis if any
-
-                                            if (
-                                              encounterResponse?.uuid &&
-                                              this.formData["icd10"]
-                                            ) {
-                                              const diagnosisData = {
-                                                diagnosis: {
-                                                  coded:
-                                                    this.formData["icd10"]
-                                                      ?.value,
-                                                  nonCoded:
-                                                    this.formData["diagnosis"]
-                                                      ?.value,
-                                                  specificName: null,
-                                                },
-                                                rank: 0,
-                                                condition: null,
-                                                certainty: "PROVISIONAL",
-                                                patient: patientResponse?.uuid,
-                                                encounter:
-                                                  encounterResponse?.uuid,
-                                              };
-
-                                              this.diagnosisService
-                                                .addDiagnosis(diagnosisData)
-                                                .subscribe(
-                                                  (diagnosisResponse) => {
-                                                    if (diagnosisResponse) {
-                                                      this.savingData = false;
-                                                    }
-                                                  }
-                                                );
+                                              } else {
+                                                this.savingData = false;
+                                                this.errorMessage =
+                                                  encounterResponse?.error?.message;
+                                              }
                                             }
-                                          } else {
-                                            this.savingData = false;
-                                            this.errorMessage =
-                                              encounterResponse?.error?.message;
-                                          }
+                                          );
                                         }
-                                      );
+                                      });
+                                      // this.labOrdersService
+                                      //   .createLabOrdersViaEncounter(encounterObject)
+                                      //   .subscribe((encounterResponse) => {
+                                      //     this.savingDataResponse = encounterResponse;
+
+                                      //   });
+                                      if (
+                                        this.personDetailsData
+                                          ?.pimaCOVIDLinkDetails
+                                      ) {
+                                        // Send to Extrnal System
+                                        this.savingLabRequest = true;
+                                        const labRequest =
+                                          this.createLabRequestPayload(
+                                            this.personDetailsData
+                                              ?.pimaCOVIDLinkDetails
+                                          );
+                                        this.otherSystemsService
+                                          .sendLabRequest(labRequest)
+                                          .subscribe((response) => {
+                                            if (response) {
+                                              this.savingLabRequest = false;
+                                            }
+                                          });
+                                      }
+                                    } else {
+                                      this.savingData = false;
                                     }
                                   });
-                                  // this.labOrdersService
-                                  //   .createLabOrdersViaEncounter(encounterObject)
-                                  //   .subscribe((encounterResponse) => {
-                                  //     this.savingDataResponse = encounterResponse;
-
-                                  //   });
-                                } else {
-                                  this.savingData = false;
-                                }
-                              });
-                          } else {
-                            this.savingData = false;
-                          }
-                        });
-                    }
-                  });
+                              } else {
+                                this.errorMessage = !patientResponse?.error
+                                  ?.error?.fieldErrors
+                                  ? patientResponse?.error?.error?.message
+                                  : !Object.keys(
+                                      patientResponse?.error?.error?.fieldErrors
+                                    )?.length
+                                  ? "Error occured hence couldn't save the form"
+                                  : patientResponse?.error?.error?.fieldErrors[
+                                      Object.keys(
+                                        patientResponse?.error?.error
+                                          ?.fieldErrors
+                                      )[0]
+                                    ][0]?.message;
+                                this.savingData = false;
+                              }
+                            });
+                        }
+                      });
+                  }
+                });
+              } else {
+                this.errorMessage = `Lab section not configured ${conceptSetsResponse?.error?.error?.message}`;
               }
             });
-          } else {
-            this.errorMessage = `Lab section not configured ${conceptSetsResponse?.error?.error?.message}`;
-          }
-        });
-    }
+        }
+      }
+    });
   }
 
   toggleFieldSet(fieldName: string) {
@@ -1540,6 +1641,9 @@ export class SingleRegistrationComponent implements OnInit {
         break;
       case "tests":
         this.tests = !this.tests;
+        break;
+      case "referralData":
+        this.showReferralDataFields = !this.showReferralDataFields;
         break;
       default:
         break;
@@ -1609,13 +1713,54 @@ export class SingleRegistrationComponent implements OnInit {
     this.dialog
       .open(BarCodeModalComponent, {
         height: "200px",
-        width: "15%",
+        width: "20%",
         data,
-        disableClose: false,
+        disableClose: true,
         panelClass: "custom-dialog-container",
       })
       .afterClosed()
-      .subscribe();
+      .subscribe((results) => {
+        if (results) {
+          let tests = [];
+          results?.sampleData?.orders?.forEach((order) => {
+            tests = [
+              ...tests,
+              order?.order?.shortName?.split("TEST_ORDERS:")?.join(""),
+            ];
+          });
+          // let message = this.barcodeSettings?.barcode?.split("{{SampleID}}").join(results?.sampleData?.label);
+          // message = message.split("{{PatientNames}}").join(`${results?.sampleData?.patient?.givenName} ${results?.sampleData?.patient?.middleName} ${results?.sampleData?.patient?.familyName}`);
+          // message = message?.split("{{Date}}").join(formatDateToYYMMDD(new Date(results?.sampleData?.created), true));
+          // message = message?.split("{{Storage}}").join("");
+          // message = message?.split("{{Tests}}").join(tests?.join(","));
+          const message = {
+            SampleID: results?.sampleData?.label,
+            Tests: tests?.join(","),
+            PatientNames: `${results?.sampleData?.patient?.givenName} ${
+              results?.sampleData?.patient?.middleName?.length
+                ? results?.sampleData?.patient?.middleName
+                : ""
+            } ${results?.sampleData?.patient?.familyName}`,
+            Date: formatDateToYYMMDD(
+              new Date(results?.sampleData?.created),
+              true
+            ),
+            Storage: "",
+            Department:
+              results?.sampleData?.department?.shortName
+                ?.split("LAB_DEPARTMENT:")
+                .join("") || "",
+            BarcodeData: results?.sampleData?.label
+              ?.split(this.barcodeSettings?.textToIgnore)
+              .join(""),
+          };
+          this.connection.next({
+            Message: message,
+            Description: "Message of data to be printed",
+            Type: "print",
+          });
+        }
+      });
   }
 
   onGetIsDataFromExternalSystem(fromExternalSystem: boolean): void {
@@ -1625,5 +1770,67 @@ export class SingleRegistrationComponent implements OnInit {
 
   onGetSelectedSystem(system): void {
     this.selectedSystem = system;
+  }
+
+  createLabRequestPayload(data): any {
+    // TODO:Softcode program stage ID
+    this.labRequestPayload = {
+      program: data?.program,
+      programStage: "emVt37lHjub",
+      orgUnit: data?.orgUnit,
+      trackedEntityInstance: data?.trackedEntityInstance,
+      enrollment: data?.enrollment,
+      dataValues: [
+        {
+          dataElement: "Q98LhagGLFj",
+          value: this.formatDateAndTime(
+            new Date(
+              this.getTimestampFromDateAndTime(
+                this.receivedOnDateLatestValue,
+                this.receivedOnTime
+              )
+            )
+          ),
+        },
+        { dataElement: "D0RBm3alWd9", value: "RT - PCR" },
+        {
+          dataElement: "RfWBPHo9MnC",
+          value: this.formatDateAndTime(
+            new Date(
+              this.getTimestampFromDateAndTime(
+                this.receivedOnDateLatestValue,
+                this.receivedOnTime
+              )
+            )
+          ),
+        },
+        { dataElement: "HTBFvtjeztu", value: true },
+        { dataElement: "xzuzLYN1f0J", value: true },
+      ],
+      eventDate: new Date(
+        this.getTimestampFromDateAndTime(
+          this.receivedOnDateLatestValue,
+          this.receivedOnTime
+        )
+      ),
+    };
+    return this.labRequestPayload;
+  }
+
+  formatDateAndTime(date: Date): string {
+    return (
+      formatDateToYYMMDD(date) +
+      "T" +
+      this.formatDimeChars(date.getHours().toString()) +
+      ":" +
+      this.formatDimeChars(date.getMinutes().toString()) +
+      ":" +
+      this.formatDimeChars(date.getSeconds().toString()) +
+      ".000Z"
+    );
+  }
+
+  formatDimeChars(char: string): string {
+    return char.length == 1 ? "0" + char : char;
   }
 }

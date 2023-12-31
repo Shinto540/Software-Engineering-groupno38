@@ -1,10 +1,10 @@
-import { Observable } from 'rxjs';
+import { Observable } from "rxjs";
 import { Component, Inject, OnInit } from "@angular/core";
 import { MatDialogRef, MAT_DIALOG_DATA } from "@angular/material/dialog";
 import { each } from "lodash";
 import { getCurrentUserDetails } from "src/app/store/selectors/current-user.selectors";
-import { Store } from '@ngrx/store';
-import { AppState } from 'src/app/store/reducers';
+import { Store } from "@ngrx/store";
+import { AppState } from "src/app/store/reducers";
 
 @Component({
   selector: "app-payment-reciept",
@@ -34,21 +34,18 @@ export class PaymentReceiptComponent implements OnInit {
         : null;
 
     this.currentUser = this.store.select(getCurrentUserDetails).subscribe({
-        next: (currentUser) => {
-          return currentUser;
-        },
+      next: (currentUser) => {
+        return currentUser;
+      },
 
-        error: (error) => {
-          throw error;
-        }
-      }
-    );
+      error: (error) => {
+        throw error;
+      },
+    });
 
     each(this.data?.billItems, (item) => {
       this.totalBill = this.totalBill + item?.payable;
     });
-
-    console.log("==> Bill: ", this.data?.billItems)
   }
 
   onCancel(e): void {
@@ -57,7 +54,6 @@ export class PaymentReceiptComponent implements OnInit {
   }
 
   onPrint(e): void {
-
     var contents = document.getElementById("dialog-bill-receipt").innerHTML;
     const frame1: any = document.createElement("iframe");
     frame1.name = "frame3";
@@ -141,8 +137,10 @@ export class PaymentReceiptComponent implements OnInit {
 
     // Change image from base64 then replace some text with empty string to get an image
     let image = "";
+    let header = "";
+    let subHeader = "";
 
-    this.facilityDetailsJson.attributes.forEach((attribute) => {
+    this.facilityDetailsJson?.attributes.map((attribute) => {
       let attributeTypeName =
         attribute && attribute.attributeType
           ? attribute?.attributeType?.name.toLowerCase()
@@ -150,26 +148,39 @@ export class PaymentReceiptComponent implements OnInit {
       if (attributeTypeName === "logo") {
         image = attribute?.value;
       }
+      header = attributeTypeName === "header" ? attribute?.value : "";
+      subHeader = attributeTypeName === "sub header" ? attribute?.value : "";
     });
 
     let patientMRN =
-      this.data?.currentPatient?.MRN ||
-      this.data?.currentPatient?.patient?.identifiers[0]?.identifier.replace(
+      e.CurrentPatient?.MRN ||
+      e.CurrentPatient?.patient?.identifiers[0]?.identifier.replace(
         "MRN = ",
         ""
       );
 
     frameDoc.document.write(`
     
-      <center id="top">
+     <center id="top">
+         <div class="info">
+          <h2>${
+            header?.length > 0 ? header : this.facilityDetailsJson?.display
+          } </h2>
+          </div>
         <div class="logo">
           <img src="${image}" alt="Facility's Logo"> 
         </div>
         
 
         <div class="info">
-          <h2>${this.facilityDetailsJson?.display}</h2>
-          <h3>P.O Box ${this.facilityDetailsJson?.postalCode} ${this.facilityDetailsJson?.stateProvince}</h3>
+          <h2>${
+            subHeader?.length > 0
+              ? subHeader
+              : this.facilityDetailsJson?.description
+          } </h2>
+          <h3>P.O Box ${this.facilityDetailsJson?.postalCode} ${
+      this.facilityDetailsJson?.stateProvince
+    }</h3>
           <h3>${this.facilityDetailsJson?.country}</h3>
         </div>
         <!--End Info-->

@@ -17,14 +17,15 @@ export class UnitFieldComponent implements OnInit {
 
   constructor() {}
 
-  ngOnInit(): void{
-    if(this.dosingUnits) {
+  ngOnInit(): void {
+    if (this.dosingUnits) {
       this.unitField = new Dropdown({
         id: "dosingUnit",
         key: "dosingUnit",
-        label: `Select Dose Unit`,
+        label: `Dose Unit`,
         conceptClass: this.dosingUnits?.conceptClass?.display,
         value: null,
+        required: true,
         options: this.dosingUnits?.answers?.map((answer) => {
           return {
             key: answer?.uuid,
@@ -35,11 +36,12 @@ export class UnitFieldComponent implements OnInit {
       });
     }
 
-    if(this.dosingFrequencies) {
+    if (this.dosingFrequencies) {
       this.unitField = new Dropdown({
         id: "frequency",
         key: "frequency",
-        label: `Select dosing frequency`,
+        label: `Dosing frequency`,
+        required: true,
         conceptClass: this.dosingFrequencies?.conceptClass?.display,
         value: null,
         options: this.dosingFrequencies?.answers?.map((answer) => {
@@ -52,11 +54,11 @@ export class UnitFieldComponent implements OnInit {
       });
     }
 
-    if(this.durationUnits) {
+    if (this.durationUnits) {
       this.unitField = new Dropdown({
         id: "durationUnit",
         key: "durationUnit",
-        label: `Select Duration Unit`,
+        label: `Duration Unit`,
         conceptClass: this.durationUnits?.conceptClass?.display,
         value: null,
         options: this.durationUnits?.answers?.map((answer) => {
@@ -69,11 +71,11 @@ export class UnitFieldComponent implements OnInit {
       });
     }
 
-    if(this.drugRoutes) {
+    if (this.drugRoutes) {
       this.unitField = new Dropdown({
         id: "route",
         key: "route",
-        label: `Select drug route`,
+        label: `Drug route`,
         conceptClass: this.drugRoutes?.conceptClass?.display,
         value: null,
         options: this.drugRoutes?.setMembers?.map((member) => {

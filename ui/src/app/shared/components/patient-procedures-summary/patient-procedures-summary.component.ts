@@ -1,7 +1,6 @@
 import { Component, Input, OnInit, Output, EventEmitter } from "@angular/core";
 import { FormValue } from "../../modules/form/models/form-value.model";
 import { Visit } from "../../resources/visits/models/visit.model";
-import { keyBy, flatten, orderBy, uniqBy } from "lodash";
 import { OrdersService } from "../../resources/order/services/orders.service";
 import { Observable } from "rxjs";
 import { VisitsService } from "../../resources/visits/services";
@@ -11,6 +10,7 @@ import { AttendProcedureOrderComponent } from "../attend-procedure-order/attend-
 import { Store } from "@ngrx/store";
 import { AppState } from "src/app/store/reducers";
 import { getGroupedObservationByConcept } from "src/app/store/selectors/observation.selectors";
+import { SharedConfirmationComponent } from "../shared-confirmation/shared-confirmation.component";
 
 @Component({
   selector: "app-patient-procedures-summary",
@@ -30,7 +30,7 @@ export class PatientProceduresSummaryComponent implements OnInit {
   formValuesData: any = {};
   procedures$: Observable<any>;
   fields: string =
-    "custom:(uuid,encounters:(uuid,location:(uuid,display),encounterType,display,encounterProviders,encounterDatetime,voided,obs,orders:(uuid,display,orderer,orderType,dateActivated,orderNumber,concept,display)))";
+    "custom:(uuid,encounters:(uuid,location:(uuid,display),encounterType,display,encounterProviders,encounterDatetime,voided,obs,orders:(uuid,display,orderer,orderType,dateActivated,dateStopped,autoExpireDate,orderNumber,concept,display)))";
   creatingProceduresResponse$: Observable<any>;
   addingProcedure: boolean = false;
   hasError: boolean = false;
@@ -38,6 +38,8 @@ export class PatientProceduresSummaryComponent implements OnInit {
   formDetails: FormValue;
   observationsKeyedByConcepts$: Observable<any>;
   @Output() updateConsultationOrder = new EventEmitter();
+  @Output() reloadOrderComponent: EventEmitter<boolean> = new EventEmitter();
+  errors: any[];
   constructor(
     private ordersService: OrdersService,
     private visitService: VisitsService,
@@ -144,11 +146,45 @@ export class PatientProceduresSummaryComponent implements OnInit {
   onOpenAttendProcedure(event: Event, proceduredOrder): void {
     event.stopPropagation();
     this.dialog.open(AttendProcedureOrderComponent, {
-      width: "45%",
+      width: "65%",
       height: "auto",
       data: {
         proceduredOrder,
       },
+    });
+  }
+
+  onDeleteProcedure(e: Event, procedure: any) {
+    // e.stopPropagation();
+    const confirmDialog = this.dialog.open(SharedConfirmationComponent, {
+      width: "25%",
+      data: {
+        modalTitle: `Delete ${procedure?.concept?.display}`,
+        modalMessage: `You are about to delete ${procedure?.concept?.display} for this patient, Click confirm to delete!`,
+        showRemarksInput: true,
+      },
+      disableClose: false,
+      panelClass: "custom-dialog-container",
+    });
+    confirmDialog.afterClosed().subscribe((confirmationObject) => {
+      if (confirmationObject?.confirmed) {
+        this.ordersService
+          .voidOrderWithReason({
+            ...procedure,
+            voidReason: confirmationObject?.remarks || "",
+          })
+          .subscribe((response) => {
+            if (!response?.error) {
+              this.procedures$ = this.visitService.getActiveVisitProcedures(
+                this.patientVisit.uuid,
+                this.fields
+              );
+            }
+            if (response?.error) {
+              this.errors = [...this.errors, response?.error];
+            }
+          });
+      }
     });
   }
 }

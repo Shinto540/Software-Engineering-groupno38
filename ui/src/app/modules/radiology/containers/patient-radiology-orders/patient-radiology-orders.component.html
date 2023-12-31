@@ -2,11 +2,14 @@
   <div
     *ngIf="{
       currentUser: currentUser$ | async,
+      currentLocation: currentLocation$ | async,
       allUserRoles: allUserRoles$ | async,
       userPrivileges: userPrivileges$ | async,
       orders: orders$ | async,
       activeVisitUuid: activeVisitUuid$ | async,
-      currentPatient: currentPatient$ | async
+      currentPatient: currentPatient$ | async,
+      currentBills: currentBills$ | async,
+      activeVisit: activeVisit$ | async
     } as params"
   >
     <!-- <app-nursing-data
@@ -31,10 +34,9 @@
       ></app-new-patient-profile>
     </div>
     <div class="patient-other-details-padding">
-      <div class="w-100 d-flex justify-content-between">
-        <div class="w-50">
+      <div class="w-100 d-flex justify-content-between mt-2">
+        <div class="w-50 d-flex justify-content-left">
           <button
-            class="float-left"
             mat-stroked-button
             [routerLink]="'/radiology'"
             matTooltip="Back to List"
@@ -42,10 +44,24 @@
             <mat-icon>arrow_back</mat-icon>
             Back to Clients List
           </button>
+          <button
+            class="mat-stroked-button ml-2"
+            [ngClass]="{ 'selected-btn': !showHistoryDetails }"
+            [disabled]="!showHistoryDetails"
+            (click)="onToggleHistory($event)"
+          >
+            Ordered list
+          </button>
+          <button
+            class="mat-stroked-button ml-2"
+            [ngClass]="{ 'selected-btn': showHistoryDetails }"
+            [disabled]="showHistoryDetails"
+            (click)="onToggleHistory($event)"
+          >
+            History
+          </button>
         </div>
-        <div class="w-100">
-          <!-- Put scale here -->
-        </div>
+        <div class="w-50 d-flex justify-content-end"></div>
       </div>
       <div
         class="alert alert-warning"
@@ -61,21 +77,41 @@
       >
         No Radiology orders
       </div>
-      <div class="mt-2 p-3">
+      <div class="w-100 mt-2 p-3" *ngIf="showHistoryDetails">
+        <mat-accordion>
+          <mat-expansion-panel class="mb-2 border p-0" [expanded]="true">
+            <mat-expansion-panel-header>
+              <mat-panel-title>Patient History </mat-panel-title>
+            </mat-expansion-panel-header>
+            <app-patient-history
+              [patient]="params?.currentPatient?.patient"
+              [location]="params?.currentLocation"
+            ></app-patient-history>
+          </mat-expansion-panel>
+        </mat-accordion>
+      </div>
+      <div
+        class="mt-2 p-3"
+        *ngIf="
+          params?.orders &&
+          params?.orders?.length > 0 &&
+          params?.userPrivileges &&
+          params?.allUserRoles &&
+          params?.activeVisitUuid &&
+          params?.currentBills &&
+          params?.activeVisit &&
+          !showHistoryDetails
+        "
+      >
         <app-patient-radiology-orders-list
-          *ngIf="
-            params?.orders &&
-            params?.orders?.length > 0 &&
-            params?.userPrivileges &&
-            params?.allUserRoles &&
-            params?.activeVisitUuid
-          "
           [currentUser]="params?.currentUser"
           [allUserRoles]="params?.allUserRoles"
           [userPrivileges]="params?.userPrivileges"
           [orders]="params?.orders"
+          [currentBills]="params?.currentBills"
           [patientId]="patientId"
           [activeVisitUuid]="params?.activeVisitUuid"
+          [activeVisit]="params?.activeVisit"
         ></app-patient-radiology-orders-list>
       </div>
 

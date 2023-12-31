@@ -69,6 +69,8 @@ export class RolesListComponent implements OnInit {
         role: role,
       },
     });
+
+    console.log("role: ",role);
   }
 
   onRetire(event: Event, privilege: PrivilegeGetFull): void {}
@@ -87,7 +89,6 @@ export class RolesListComponent implements OnInit {
           this.privilegeAndRolesService
             .deleteRole(privilege?.uuid)
             .subscribe((response) => {
-              console.log(response);
               this.getRolesList();
             });
         }

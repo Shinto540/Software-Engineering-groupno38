@@ -3,8 +3,9 @@ import { from, Observable, of, zip } from "rxjs";
 import { catchError, map } from "rxjs/operators";
 import { OpenmrsHttpClientService } from "../../../modules/openmrs-http-client/services/openmrs-http-client.service";
 import { omit } from "lodash";
-import { Api, EncounterCreate } from "../../openmrs";
+import { Api, EncounterCreate, OrderGetFull } from "../../openmrs";
 import { HttpErrorResponse } from "@angular/common/http";
+import { getDrugOrderPaymentStatus } from "../helpers/getDrugOrderPaymentStatus.helper";
 
 @Injectable({
   providedIn: "root",
@@ -19,13 +20,20 @@ export class OrdersService {
     return zip(
       ...orderUuids.map((orderUuid) => {
         return this.openMRSHttpClient.get(
-          `order/${orderUuid}?v=custom:(uuid,orderNumber,concept:(uuid,display,setMembers:(uuid,display)))`
+          `order/${orderUuid}?v=custom:(uuid,orderNumber,encounter,concept:(uuid,display,setMembers:(uuid,display)))`
         );
       })
     ).pipe(
       map((response) => {
         return response;
       })
+    );
+  }
+
+  getOrderByUuid(uuid): Observable<OrderGetFull> {
+    return from(this.API.order.getOrder(uuid)).pipe(
+      map((response) => response),
+      catchError((error) => of(error))
     );
   }
 
@@ -70,16 +78,8 @@ export class OrdersService {
           return response?.results.map((orderDetails) => {
             return {
               ...orderDetails,
-              paid: !orderDetails?.invoiceItem
-                ? true
-                : orderDetails?.invoiceItem?.invoice?.paymentMode?.display.toLowerCase() ===
-                    "insurance" &&
-                  orderDetails?.invoiceItem?.invoice?.visit?.uuid == visit
-                ? true
-                : orderDetails?.invoiceItem?.invoice?.payments?.length > 0 &&
-                  orderDetails?.invoiceItem?.invoice?.visit?.uuid == visit
-                ? true
-                : false,
+              drugUuid: orderDetails?.drug?.uuid,
+              paid: getDrugOrderPaymentStatus(orderDetails, visit),
             };
           });
         })
@@ -88,6 +88,27 @@ export class OrdersService {
 
   deleteOrder(uuid): Observable<any> {
     return this.openMRSHttpClient.delete(`order/${uuid}`);
+  }
+
+  voidOrderWithReason(order: {
+    uuid: string;
+    voidReason: string;
+  }): Observable<any> {
+    const voidReason =
+      order?.voidReason.length > 0 ? order?.voidReason : "No reason";
+    return this.openMRSHttpClient
+      .post(`icare/voidorder`, {
+        uuid: order?.uuid,
+        voidReason: voidReason,
+      })
+      .pipe(
+        map((order) => {
+          return order;
+        }),
+        catchError((err) => {
+          return of(err);
+        })
+      );
   }
 
   createOrdersViaCreatingEncounter(encounter): Observable<any> {

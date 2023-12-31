@@ -1,15 +1,17 @@
 import { Component, OnInit } from "@angular/core";
 import { FormControl } from "@angular/forms";
+import { MatDialog } from "@angular/material/dialog";
 import { select, Store } from "@ngrx/store";
 import { Observable } from "rxjs";
 import { SystemSettingsService } from "src/app/core/services/system-settings.service";
-import { Patient } from "src/app/shared/resources/patient/models/patient.model";
+import { PatientHistoryDialogComponent } from "src/app/shared/dialogs/patient-history-dialog/patient-history-dialog.component";
 import { go } from "src/app/store/actions";
 import { AppState } from "src/app/store/reducers";
 import {
   getCurrentLocation,
   getSettingCurrentLocationStatus,
 } from "src/app/store/selectors";
+import { getCurrentUserPrivileges } from "src/app/store/selectors/current-user.selectors";
 
 @Component({
   selector: "app-clinic-patient-list",
@@ -26,13 +28,15 @@ export class ClinicPatientListComponent implements OnInit {
   drugOrderType$: Observable<any>;
   labTestOrderType$: Observable<any>;
   showAllPatientsTab$: Observable<any>;
+  userPrivileges$: Observable<any>;
   constructor(
     private store: Store<AppState>,
-    private systemSettingsService: SystemSettingsService
+    private systemSettingsService: SystemSettingsService,
+    private dialog: MatDialog
   ) {}
 
   ngOnInit() {
-    this.currentLocation$ = this.store.pipe(select(getCurrentLocation));
+    this.currentLocation$ = this.store.pipe(select(getCurrentLocation(false)));
     this.settingCurrentLocationStatus$ = this.store.select(
       getSettingCurrentLocationStatus
     );
@@ -47,7 +51,7 @@ export class ClinicPatientListComponent implements OnInit {
       );
     this.radiologyOrderType$ =
       this.systemSettingsService.getSystemSettingsByKey(
-        "iCare.clinic.radiology.radiologyOrderType"
+        "iCare.clinic.consultation.orderType"
       );
     this.drugOrderType$ = this.systemSettingsService.getSystemSettingsByKey(
       "iCare.clinic.drug.drugOrderType"
@@ -60,6 +64,7 @@ export class ClinicPatientListComponent implements OnInit {
       this.systemSettingsService.getSystemSettingsDetailsByKey(
         `iCare.clinic.settings.patientsListGroups.showAllPatientsTab`
       );
+    this.userPrivileges$ = this.store.select(getCurrentUserPrivileges);
   }
 
   onSelectPatient(patient: any) {
@@ -77,5 +82,15 @@ export class ClinicPatientListComponent implements OnInit {
   onBack(e: Event) {
     e.stopPropagation();
     this.store.dispatch(go({ path: ["/"] }));
+  }
+
+  onOpenHistory(patient: any) {
+    this.dialog.open(PatientHistoryDialogComponent, {
+      width: "50%",
+      data: {
+        patient: patient,
+      },
+      disableClose: false,
+    });
   }
 }

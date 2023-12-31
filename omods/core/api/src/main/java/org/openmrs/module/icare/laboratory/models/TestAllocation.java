@@ -3,9 +3,10 @@ package org.openmrs.module.icare.laboratory.models;
 // Generated Oct 7, 2020 12:48:40 PM by Hibernate Tools 5.2.10.Final
 
 import org.hibernate.annotations.GenericGenerator;
-import org.openmrs.BaseOpenmrsData;
-import org.openmrs.Concept;
-import org.openmrs.Order;
+import org.openmrs.*;
+import org.openmrs.api.ConceptService;
+import org.openmrs.api.context.Context;
+import org.openmrs.module.icare.core.ICareService;
 
 import javax.persistence.*;
 import java.util.*;
@@ -55,9 +56,23 @@ public class TestAllocation extends BaseOpenmrsData implements java.io.Serializa
 	
 	@OneToMany(fetch = FetchType.LAZY, mappedBy = "testAllocation")
 	private List<Result> testAllocationResults = new ArrayList<Result>(0);
+
+	@OneToMany(fetch = FetchType.LAZY, mappedBy = "testAllocation")
+	private List<TestAllocationAssociatedField> testAllocationAssociatedFields = new ArrayList<>(0);
+
+	@Column(name = "related_allocation_uuid")
+	private String relatedtestAllocationUuid;
+
+	@Transient
+	private List<ConceptSet> conceptSets;
 	
 	public Concept getTestConcept() {
 		return this.testConcept;
+	}
+
+	public ConceptNumeric getConceptNumeric() {
+		String uuid = this.getTestConcept().getUuid().toString();
+		return  Context.getConceptService().getConceptNumericByUuid(uuid);
 	}
 	
 	public void setTestConcept(Concept testConcept) {
@@ -76,6 +91,10 @@ public class TestAllocation extends BaseOpenmrsData implements java.io.Serializa
 		return sampleOrder;
 	}
 	
+	public Sample getSample() {
+		return this.sampleOrder.getSample();
+	}
+	
 	public void setSampleOrder(SampleOrder sampleOrder) {
 		this.sampleOrder = sampleOrder;
 	}
@@ -83,7 +102,15 @@ public class TestAllocation extends BaseOpenmrsData implements java.io.Serializa
 	public List<TestAllocationStatus> getTestAllocationStatuses() {
 		return testAllocationStatuses;
 	}
-	
+
+	public String getRelatedtestAllocationUuid() {
+		return relatedtestAllocationUuid;
+	}
+
+	public void setRelatedtestAllocationUuid(String relatedtestAllocationUuid) {
+		this.relatedtestAllocationUuid = relatedtestAllocationUuid;
+	}
+
 	public void setTestAllocationStatuses(List<TestAllocationStatus> testAllocationStatuses) {
 		this.testAllocationStatuses = testAllocationStatuses;
 	}
@@ -111,7 +138,25 @@ public class TestAllocation extends BaseOpenmrsData implements java.io.Serializa
 	public void setContainer(Concept container) {
 		this.container = container;
 	}
-	
+
+	public List<TestAllocationAssociatedField> getTestAllocationAssociatedFields() {
+		return testAllocationAssociatedFields;
+	}
+
+	public void setTestAllocationAssociatedFields(List<TestAllocationAssociatedField> testAllocationAssociatedFields) {
+		this.testAllocationAssociatedFields = testAllocationAssociatedFields;
+	}
+
+	public List<ConceptSet> getConceptSets() {
+		ICareService iCareService = Context.getService(ICareService.class);
+		List<ConceptSet> conceptSets = iCareService.getConceptsSetsByConcept(this.getTestConcept().getUuid());
+		return conceptSets;
+	}
+
+	public void setConceptSets(List<ConceptSet> conceptSets) {
+		this.conceptSets = conceptSets;
+	}
+
 	public static TestAllocation fromMap(Map<String, Object> map) {
 		Concept containerConcept = new Concept();
 		containerConcept.setUuid(((Map<String, Object>) map.get("container")).get("uuid").toString());
@@ -138,6 +183,10 @@ public class TestAllocation extends BaseOpenmrsData implements java.io.Serializa
 		if (testConcept != null) {
 			testAllocation.setTestConcept(testConcept);
 		}
+
+		if(map.get("relatedAllocation") != null){
+			testAllocation.setRelatedtestAllocationUuid(((Map)map.get("relatedAllocation")).get("uuid").toString());
+		}
 		
 		return testAllocation;
 	}
@@ -158,8 +207,77 @@ public class TestAllocation extends BaseOpenmrsData implements java.io.Serializa
 			Map<String, Object> testConceptMap = new HashMap<String, Object>();
 			testConceptMap.put("uuid", this.getTestConcept().getUuid());
 			testConceptMap.put("display", this.getTestConcept().getDisplayString());
+			Map<String, Object> datatype = new HashMap<>();
+			datatype.put("uuid", this.getTestConcept().getDatatype().getUuid());
+			datatype.put("name", this.getTestConcept().getDatatype().getName());
+			datatype.put("display", this.getTestConcept().getDatatype().getName());
+			datatype.put("description", this.getTestConcept().getDatatype().getDescription());
+			testConceptMap.put("datatype", datatype);
+			if(this.getTestConcept().isNumeric()) {
+				ConceptNumeric conceptNumeric = this.getConceptNumeric();
+				testConceptMap.put("units", conceptNumeric.getUnits());
+				testConceptMap.put("lowNormal", conceptNumeric.getLowNormal());
+				testConceptMap.put("hiNormal", conceptNumeric.getHiNormal());
+				testConceptMap.put("allowDecimal", conceptNumeric.getAllowDecimal());
+			}
+
+			List<Map<String,Object>> attributesListMap = new ArrayList<>();
+			if(!this.getTestConcept().getAttributes().isEmpty()){
+				for(ConceptAttribute attribute : this.getTestConcept().getAttributes()){
+					Map<String, Object> conceptAttributeMap = new HashMap<>();
+					conceptAttributeMap.put("attributeType",attribute.getAttributeType().getName());
+					conceptAttributeMap.put("attributeTypeUuid", attribute.getAttributeType().getUuid());
+					conceptAttributeMap.put("value", attribute.getValueReference());
+					attributesListMap.add(conceptAttributeMap);
+				}
+			}
+			testConceptMap.put("attributes",attributesListMap);
+
+
+			List<Map<String, Object>> mappings = new ArrayList<>();
+			if (testConcept.getConceptMappings().size() > 0) {
+				for(ConceptMap conceptMap: testConcept.getConceptMappings()) {
+					ConceptReferenceTerm conceptReferenceTerm  = conceptMap.getConceptReferenceTerm();
+					String sourceUuid = conceptReferenceTerm.getConceptSource().getUuid();
+					Map<String, Object> mapping = new HashMap<>();
+					Map<String, Object> conceptReference = new HashMap<>();
+					conceptReference.put("uuid", conceptReferenceTerm.getUuid().toString());
+					conceptReference.put("display", conceptReferenceTerm.getName().toString());
+					conceptReference.put("name", conceptReferenceTerm.getName().toString());
+					conceptReference.put("code", conceptReferenceTerm.getCode().toString());
+					Map<String, Object> conceptSource =new HashMap<>();
+					conceptSource.put("uuid", conceptReferenceTerm.getConceptSource().getUuid().toString());
+					conceptSource.put("display", conceptReferenceTerm.getConceptSource().getName().toString());
+					conceptReference.put("conceptSource",conceptSource);
+					mapping.put("conceptReference", conceptReference);
+					mappings.add(mapping);
+				}
+			} else {
+				mappings = null;
+			}
+			testConceptMap.put("mappings", mappings);
+
+			if(this.getConceptSets() != null){
+				List<Map<String,Object>> parametersHeadersListMap = new ArrayList<>();
+				Map<String,Object> parameterHeaderMap = new HashMap<>();
+				for(ConceptSet conceptSet : this.getConceptSets()){
+					for(ConceptName indexTermName : conceptSet.getConceptSet().getIndexTerms()){
+						if(indexTermName.getName().toLowerCase().equals("parameter_header")){
+							parameterHeaderMap.put("uuid",conceptSet.getConceptSet().getUuid());
+							parameterHeaderMap.put("display",conceptSet.getConceptSet().getDisplayString());
+
+						}
+					}
+
+				}
+				parametersHeadersListMap.add(parameterHeaderMap);
+				testConceptMap.put("parameterHeaders",parametersHeadersListMap);
+
+			}
 			testAllocationMap.put("concept", testConceptMap);
+			testAllocationMap.put("parameter", testConceptMap);
 		}
+
 		
 		List<Map<String, Object>> testAllocationStatusMap = new ArrayList<Map<String, Object>>();
 		for (TestAllocationStatus status : this.getTestAllocationStatuses()) {
@@ -167,11 +285,65 @@ public class TestAllocation extends BaseOpenmrsData implements java.io.Serializa
 		}
 		testAllocationMap.put("statuses", testAllocationStatusMap);
 		
-		List<Map<String, Object>> resultssMap = new ArrayList<Map<String, Object>>();
+		List<Map<String, Object>> resultsMap = new ArrayList<Map<String, Object>>();
 		for (Result result : this.getTestAllocationResults()) {
-			resultssMap.add(result.toMap());
+			// Filter voided results
+			if (result.getVoided() == null || result.getVoided() == false) {
+				resultsMap.add(result.toMap());
+			}
 		}
-		testAllocationMap.put("results", resultssMap);
+		testAllocationMap.put("results", resultsMap);
+		Map<String, Object> order = new HashMap<String, Object>();
+		order.put("uuid", this.sampleOrder.getOrder().getUuid());
+		Map<String, Object> orderer = new HashMap<String, Object>();
+		orderer.put("uuid", this.sampleOrder.getOrder().getOrderer().getUuid());
+		orderer.put("name", this.sampleOrder.getOrder().getOrderer().getName());
+		orderer.put("display", this.sampleOrder.getOrder().getOrderer().getName());
+		order.put("orderer", orderer);
+		order.put("orderNumber", this.sampleOrder.getOrder().getOrderNumber());
+		order.put("orderDate", this.sampleOrder.getOrder().getDateCreated());
+		order.put("dateActivated", this.sampleOrder.getOrder().getDateActivated());
+		order.put("careSetting", this.sampleOrder.getOrder().getCareSetting().getName().toString());
+		Map<String, Object> orderConcept = new HashMap<>();
+		orderConcept.put("uuid", this.sampleOrder.getOrder().getConcept().getUuid());
+		orderConcept.put("display", this.sampleOrder.getOrder().getConcept().getDisplayString());
+		List<Map<String, Object>> setMembers = new ArrayList<>();
+		for (Concept setMember: this.sampleOrder.getOrder().getConcept().getSetMembers()) {
+			Map<String, Object> member = new HashMap<>();
+			member.put("uuid", setMember.getUuid());
+			member.put("display", setMember.getDisplayString());
+			setMembers.add(member);
+		}
+		orderConcept.put("setMembers", setMembers);
+		order.put("concept", orderConcept);
+		order.put("dateCreated", this.sampleOrder.getOrder().getDateCreated());
+		order.put("dateActivated", this.sampleOrder.getOrder().getDateActivated());
+		testAllocationMap.put("order", order);
+		
+		Map<String, Object> sample = new HashMap<String, Object>();
+		sample.put("uuid", this.sampleOrder.getSample().getUuid());
+		sample.put("label", this.sampleOrder.getSample().getLabel());
+		testAllocationMap.put("sample", sample);
+		Boolean isSetMember = false;
+		if (this.getSampleOrder() != null && this.getSampleOrder().getOrder() != null && this.getSampleOrder().getOrder().getConcept() != null && this.getTestConcept() != null && this.getTestConcept().getUuid() != null && this.getSampleOrder().getOrder().getConcept().getSetMembers().size() > 0 && this.getTestConcept().getUuid().toString() != this.getSampleOrder().getOrder().getConcept().getUuid().toString()) {
+			isSetMember= this.getSampleOrder().getOrder().getConcept().getSetMembers().size() > 0 && this.getTestConcept().getUuid().toString() != this.getSampleOrder().getOrder().getConcept().getUuid().toString();
+		}
+		testAllocationMap.put("isSetMember", isSetMember);
+
+		if(this.getTestAllocationAssociatedFields() != null){
+			List<Map<String,Object>> allocationAssociatedfieldsListMap = new ArrayList<>();
+			for(TestAllocationAssociatedField testAllocationAssociatedField : this.getTestAllocationAssociatedFields()){
+				allocationAssociatedfieldsListMap.add(testAllocationAssociatedField.toMap());
+			}
+			testAllocationMap.put("testAllocationAssociatedFields",allocationAssociatedfieldsListMap);
+		}
+
+		if(this.getRelatedtestAllocationUuid() != null){
+			Map<String,Object> relatedAllocationMap = new HashMap<>();
+			relatedAllocationMap.put("uuid",this.getRelatedtestAllocationUuid());
+			testAllocationMap.put("relatedAllocation",relatedAllocationMap);
+		}
+
 		return testAllocationMap;
 	}
 	

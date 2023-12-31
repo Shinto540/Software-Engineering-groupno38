@@ -101,16 +101,21 @@ export class AuthEffects {
         this.notificationService.show(
           new Notification({ message: "Logging out", type: "LOADING" })
         );
-        document.cookie = `JSESSIONID= ;expires=${new Date()}`;
+        // document.cookie = `JSESSIONID= ;expires=${new Date()}`;
+        //document.cookie = "JSESSIONID=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;";
+        let credetialsToken = localStorage.getItem("credetialsToken");
         localStorage.removeItem("credentialsToken");
         localStorage.removeItem("currentLocation");
         localStorage.removeItem("navigationDetails");
-        return this.authService.logout().pipe(
-          switchMap(() => [
-            clearLocations(),
-            go({ path: ["/login"] }),
-            addSessionStatus({ authenticated: false }),
-          ]),
+
+        return this.authService.logout(credetialsToken).pipe(
+          switchMap(() => {
+            return [
+              clearLocations(),
+              addSessionStatus({ authenticated: false }),
+              go({ path: ["/login"] }),
+            ];
+          }),
           catchError((error) => of(logoutUserFail({ error })))
         );
       })

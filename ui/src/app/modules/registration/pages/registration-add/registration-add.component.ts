@@ -3,7 +3,7 @@ import { MatSnackBar } from "@angular/material/snack-bar";
 import { Router } from "@angular/router";
 import { Store } from "@ngrx/store";
 import {
-  getAgeInYearsMontthsDays,
+  getAgeInYearsMonthsDays,
   getDateDifferenceYearsMonthsDays,
 } from "src/app/shared/helpers/date.helpers";
 import {
@@ -110,6 +110,7 @@ export class RegistrationAddComponent implements OnInit {
   continueReg: boolean = false;
   loadingData: boolean;
   patientInformation$: any;
+  openEMPId: any;
   constructor(
     private _snackBar: MatSnackBar,
     private router: Router,
@@ -273,7 +274,7 @@ export class RegistrationAddComponent implements OnInit {
 
     // let birthdate = new Date(this.patient?.dob);
     // let ageObject = getDateDifferenceYearsMonthsDays(birthdate, new Date());
-    let ageObject = getAgeInYearsMontthsDays(this.patient?.dob);
+    let ageObject = getAgeInYearsMonthsDays(this.patient?.dob);
 
     this.patient.age = {
       ...this.patient.age,
@@ -384,13 +385,7 @@ export class RegistrationAddComponent implements OnInit {
     this.wardField = new Dropdown({
       id: "ward",
       key: "ward",
-      options: [
-        {
-          key: data?.ward,
-          value: data?.ward,
-          label: data?.ward,
-        },
-      ],
+      options: [{ key: data?.ward, value: data?.ward, label: data?.ward }],
       label: "Ward",
       value: data?.ward,
       searchControlType: "residenceLocation",
@@ -446,7 +441,7 @@ export class RegistrationAddComponent implements OnInit {
     this.residenceDetailsLocation$ = this.locationService.getLocationById(
       this.residenceDetailsLocationUuid
     );
-    this.currentLocation$ = this.store.select(getCurrentLocation);
+    this.currentLocation$ = this.store.select(getCurrentLocation(false));
     this.showPatientType$ =
       this.systemSettingsService.getSystemSettingsDetailsByKey(
         `icare.registration.settings.showPatientTypeField`
@@ -496,6 +491,12 @@ export class RegistrationAddComponent implements OnInit {
             const patientIdentifierTypes = results[0];
             const facilityCode = results[1];
             const autoFilledIdentifier = results[2];
+            this.openEMPId =
+              this.patientInformation?.patient?.identifiers?.filter(
+                (identifier) =>
+                  identifier?.identifierType?.uuid ===
+                  "a5d38e09-efcb-4d91-a526-50ce1ba5011a" //TODO: SOftcode this bahmni/afyacare identifier type
+              )[0];
             this.patientIdentifierTypes = filter(
               patientIdentifierTypes.map((identifierType) => {
                 // TODO: Need to find best way to autofill identifier through regex
@@ -504,7 +505,7 @@ export class RegistrationAddComponent implements OnInit {
                 if (isAutoFilled) {
                   if (this.patientInformation?.MRN) {
                     this.patient[identifierType.id] =
-                      this.patientInformation?.MRN;
+                      this.patientInformation?.MRN || this.openEMPId?.uuid;
                   } else {
                     const identifierObject =
                       this.patientInformation?.patient?.identifiers?.filter(
@@ -519,10 +520,11 @@ export class RegistrationAddComponent implements OnInit {
                       identifierObject?.length > 0
                         ? identifierObject[0]?.identifier
                         : null;
-                    this.patient["MRN"] =
-                      identifierObject?.length > 0
-                        ? identifierObject[0]?.identifier
-                        : null;
+                    this.patient["MRN"] = this.openEMPId
+                      ? this.openEMPId?.identifier
+                      : identifierObject?.length > 0
+                      ? identifierObject[0]?.identifier
+                      : null;
                   }
                 } else {
                   this.patient[identifierType.id] = null;
@@ -554,11 +556,16 @@ export class RegistrationAddComponent implements OnInit {
                 }
               )[0];
             this.patient["patientType"] =
-              otherIdentifierObject?.identifierType?.uuid ===
-              ("6e7203dd-0d6b-4c92-998d-fdc82a71a1b0" ||
-                "9f6496ec-cf8e-4186-b8fc-aaf9e93b3406")
-                ? otherIdentifierObject?.identifierType?.display?.split(" ")[0]
-                : "Other";
+              this.patientInformation?.patient?.person?.attributes.filter(
+                (attribute) => {
+                  return attribute.attributeType.display === "patientType";
+                }
+              )[0]?.value;
+            // otherIdentifierObject?.identifierType?.uuid ===
+            // ("6e7203dd-0d6b-4c92-998d-fdc82a71a1b0" ||
+            //   "9f6496ec-cf8e-4186-b8fc-aaf9e93b3406")
+            //   ? otherIdentifierObject?.identifierType?.display?.split(" ")[0]
+            //   : "Other";
 
             this.selectedIdentifierType.id =
               otherIdentifierObject?.identifierType?.uuid;
@@ -579,9 +586,38 @@ export class RegistrationAddComponent implements OnInit {
             this.primaryPhoneNumberFormField.value =
               this.patientInformation?.patient?.person?.attributes.filter(
                 (attribute) => {
-                  return attribute.attributeType.display === "phone";
+                  return (
+                    attribute.attributeType.uuid ===
+                      "96878413-bbae-4ee0-812f-241a4fc94500" ||
+                    attribute.attributeType.uuid ===
+                      "aeb3a16c-f5b6-4848-aa51-d7e3146886d6"
+                  );
                 }
               )[0]?.value;
+            this.primaryPhoneNumberNextOfKinFormField.value =
+              this.patientInformation?.patient?.person?.attributes.filter(
+                (attribute) => {
+                  return attribute.attributeType.display === "kinPhone";
+                }
+              )[0]?.value;
+            this.residenceField.value = this?.patientInformation?.patient
+              ?.person?.preferredAddress?.cityVillage
+              ? this?.patientInformation?.patient?.person?.preferredAddress
+                  ?.cityVillage
+              : this?.patientInformation?.patient?.person?.preferredAddress
+                  ?.address2
+              ? this?.patientInformation?.patient?.person?.preferredAddress
+                  ?.address2
+              : null;
+            this.residenceField.searchTerm = this?.patientInformation?.patient
+              ?.person?.preferredAddress?.cityVillage
+              ? this?.patientInformation?.patient?.person?.preferredAddress
+                  ?.cityVillage
+              : this?.patientInformation?.patient?.person?.preferredAddress
+                  ?.address2
+              ? this?.patientInformation?.patient?.person?.preferredAddress
+                  ?.address2
+              : null;
             this.patient = {
               ...this.patient,
               fname: this.patientInformation?.fname
@@ -616,12 +652,6 @@ export class RegistrationAddComponent implements OnInit {
               gender: this.patientInformation?.patientFull?.person?.gender
                 ? this.patientInformation?.patientFull?.person?.gender
                 : this.patientInformation?.patient?.person?.gender,
-              phone:
-                this.patientInformation?.patient?.person?.attributes.filter(
-                  (attribute) => {
-                    return attribute.attributeType.display === "phone";
-                  }
-                )[0]?.value,
               cityVillage: this.patientInformation?.cityVillage,
               village: this.patientInformation?.street,
               district:
@@ -651,11 +681,6 @@ export class RegistrationAddComponent implements OnInit {
                     return attribute.attributeType.display === "kinLName";
                   }
                 )[0]?.value,
-              // kinRelationship:
-              //  this.patientInformation?.patient?.person?.attributes.filter(
-              //     (attribute) => { return
-              //       attribute.attributeType.display === "RelationshipType"
-              //   )[0]?.value,
               kinPhone:
                 this.patientInformation?.patient?.person?.attributes.filter(
                   (attribute) => {
@@ -706,7 +731,7 @@ export class RegistrationAddComponent implements OnInit {
               (idType) => {
                 return (
                   idType?.id != "8d79403a-c2cc-11de-8d13-0010c6dffd0f" &&
-                  idType?.id != "a5d38e09-efcb-4d91-a526-50ce1ba5011a" &&
+                  // idType?.id != "a5d38e09-efcb-4d91-a526-50ce1ba5011a" &&
                   idType?.id != "05a29f94-c0ed-11e2-94be-8c13b969e334" &&
                   idType?.id != "8d793bee-c2cc-11de-8d13-0010c6dffd0f"
                 );
@@ -732,7 +757,10 @@ export class RegistrationAddComponent implements OnInit {
       .subscribe((personAttributeTypes) => {
         this.personAttributeTypes = personAttributeTypes;
         personAttributeTypes.forEach((personAttributeType) => {
-          this.patient[personAttributeType.name] = null;
+          if (!this.editMode) {
+            this.patient[personAttributeType.name] = null;
+          }
+          // this.patient[personAttributeType.name] = null;
         });
       });
   }
@@ -766,9 +794,9 @@ export class RegistrationAddComponent implements OnInit {
           person: {
             names: [
               {
-                givenName: this.patient.fname,
-                middleName: this.patient.mname,
-                familyName: this.patient.lname,
+                givenName: this.patient?.fname?.toUpperCase(),
+                middleName: this.patient?.mname?.toUpperCase(),
+                familyName: this.patient?.lname?.toUpperCase(),
               },
             ],
             gender: this.patient.gender,
@@ -796,16 +824,36 @@ export class RegistrationAddComponent implements OnInit {
               })
               .filter((attribute) => attribute.value),
           },
-          identifiers: (this.patientIdentifierTypes || [])
-            .map((personIdentifierType) => {
-              return {
-                identifier: this.patient[personIdentifierType?.id],
-                identifierType: personIdentifierType?.id,
-                location: currentLocation?.uuid,
-                preferred: false,
-              };
-            })
-            .filter((patientIdentifier) => patientIdentifier?.identifier),
+          identifiers: this.openEMPId
+            ? [
+                ...(this.patientIdentifierTypes || [])
+                  .map((personIdentifierType) => {
+                    return {
+                      identifier: this.patient[personIdentifierType?.id],
+                      identifierType: personIdentifierType?.id,
+                      location: currentLocation?.uuid,
+                      preferred: false,
+                    };
+                  })
+                  .filter((patientIdentifier) => patientIdentifier?.identifier),
+                {
+                  identifier: this.openEMPId?.identifier,
+                  // identifierType: "26742868-a38c-4e6a-ac1d-ae283c414c2e",
+                  identifierType: "a5d38e09-efcb-4d91-a526-50ce1ba5011a",
+                  location: currentLocation?.uuid,
+                  preferred: false,
+                },
+              ].filter((patientIdentifier) => patientIdentifier?.identifier)
+            : (this.patientIdentifierTypes || [])
+                .map((personIdentifierType) => {
+                  return {
+                    identifier: this.patient[personIdentifierType?.id],
+                    identifierType: personIdentifierType?.id,
+                    location: currentLocation?.uuid,
+                    preferred: false,
+                  };
+                })
+                .filter((patientIdentifier) => patientIdentifier?.identifier),
         };
 
         //TODO: add check for edit mode to see if can create or edit mode
@@ -814,21 +862,26 @@ export class RegistrationAddComponent implements OnInit {
             .updatePatient(patientPayload, this.patientInformation?.id)
             .subscribe(
               (updatePatientResponse) => {
-                this.notificationService.show(
-                  new Notification({
-                    message: "Patient details updated succesfully",
-                    type: "SUCCESS",
-                  })
-                );
+                if (!updatePatientResponse?.error) {
+                  this.notificationService.show(
+                    new Notification({
+                      message: "Patient details updated succesfully",
+                      type: "SUCCESS",
+                    })
+                  );
 
-                this.store.dispatch(go({ path: ["/registration/home"] }));
+                  this.store.dispatch(go({ path: ["/registration/home"] }));
+                }
+
+                if (updatePatientResponse?.error) {
+                  this.errorAddingPatient = true;
+                  this.patientAdded = false;
+                  this.addingPatient = false;
+                  this.errors = [...this.errors, updatePatientResponse.error];
+                  this.openSnackBar("Error editing patient", null);
+                }
               },
               (errorUpdatingPatient) => {
-                this.errorAddingPatient = true;
-                this.patientAdded = false;
-                this.addingPatient = false;
-                this.errors = [...this.errors, errorUpdatingPatient.error];
-
                 /* 
                 this.errorMessage = errorUpdatingPatient?.error?.error
                   ? errorUpdatingPatient?.error?.error?.message +
@@ -903,6 +956,7 @@ export class RegistrationAddComponent implements OnInit {
                             .open(StartVisitModelComponent, {
                               width: "85%",
                               data: { patient: patientResponse },
+                              disableClose: false,
                             })
                             .afterClosed()
                             .subscribe((visitDetails) => {
@@ -1121,27 +1175,27 @@ export class RegistrationAddComponent implements OnInit {
   }
 
   validateNamesInputs(value, key) {
-    var regex = /^[a-zA-Z ]{2,30}$/;
+    var regex = /^[a-zA-Z' ]{2,30}$/;
     this.validatedTexts[key] = regex.test(value) ? "valid" : "invalid";
   }
 
   get residenceRegion(): any[] {
     return uniq(
-      this.patientLocation.map((obj) => {
+      this.patientLocation?.map((obj) => {
         return obj.REGION;
       })
     );
   }
   get residenceDistrict(): any[] {
     return uniq(
-      this.patientLocation.map((obj) => {
+      this.patientLocation?.map((obj) => {
         return obj.DISTRICT;
       })
     );
   }
   // addResidenceArea(area: string) {
   //   if (area?.length > 0) {
-  //     let areaUpper = area.toUpperCase();
+  //     let areaUpper = area?.toUpperCase();
   //     const found = DarRegion.some((el) => el.STREET === areaUpper);
   //     if (!found) {
   //       let obj = {

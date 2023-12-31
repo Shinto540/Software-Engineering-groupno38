@@ -7,6 +7,9 @@ import { PriceListHomeComponent } from "./price-list-home/price-list-home.compon
 import { SystemSettingsComponent } from "./system-settings/system-settings.component";
 import { PrivilegesAndRolesComponent } from "./privileges-and-roles/privileges-and-roles.component";
 import { DrugManagementComponent } from "./drug-management/drug-management.component";
+import { ReportsManagementComponent } from "./reports-management/reports-management.component";
+import { ReportsSettingsComponent } from "./reports-settings/reports-settings.component";
+import { ProgramsManagementComponent } from "./programs-management/programs-management.component";
 
 export const maintenancePages: any[] = [
   MaintenanceHomeComponent,
@@ -18,6 +21,9 @@ export const maintenancePages: any[] = [
   SystemSettingsComponent,
   PrivilegesAndRolesComponent,
   DrugManagementComponent,
+  ReportsManagementComponent,
+  ReportsSettingsComponent,
+  ProgramsManagementComponent,
 ];
 
 export {

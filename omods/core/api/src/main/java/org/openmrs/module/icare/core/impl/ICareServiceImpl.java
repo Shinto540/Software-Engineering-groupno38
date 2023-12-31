@@ -15,7 +15,6 @@ import org.openmrs.api.*;
 import org.openmrs.api.context.Context;
 import org.openmrs.api.db.PatientDAO;
 import org.openmrs.api.impl.BaseOpenmrsService;
-import org.openmrs.logic.op.In;
 import org.openmrs.module.icare.ICareConfig;
 import org.openmrs.module.icare.billing.ItemNotPayableException;
 import org.openmrs.module.icare.billing.models.ItemPrice;
@@ -24,33 +23,57 @@ import org.openmrs.module.icare.billing.services.insurance.Claim;
 import org.openmrs.module.icare.billing.services.insurance.ClaimResult;
 import org.openmrs.module.icare.billing.services.insurance.InsuranceService;
 import org.openmrs.module.icare.billing.services.insurance.VerificationException;
-import org.openmrs.module.icare.billing.services.insurance.nhif.AuthToken;
-import org.openmrs.module.icare.billing.services.insurance.nhif.NHIFConfig;
-import org.openmrs.module.icare.core.ICareService;
-import org.openmrs.module.icare.core.Item;
-import org.openmrs.module.icare.core.Message;
-import org.openmrs.module.icare.core.Summary;
-import org.openmrs.module.icare.core.dao.ICareDao;
+import org.openmrs.module.icare.core.*;
+import org.openmrs.module.icare.core.dao.*;
+import org.openmrs.module.icare.core.models.EncounterPatientProgram;
+import org.openmrs.module.icare.core.models.EncounterPatientState;
+import org.openmrs.module.icare.core.models.PasswordHistory;
 import org.openmrs.module.icare.core.utils.PatientWrapper;
 import org.openmrs.module.icare.core.utils.VisitWrapper;
 import org.openmrs.module.icare.report.dhis2.DHIS2Config;
 import org.openmrs.module.icare.store.models.OrderStatus;
+import org.openmrs.module.icare.store.services.StoreService;
 import org.openmrs.validator.ValidateUtil;
 
+import javax.activation.DataHandler;
+import javax.activation.DataSource;
+import javax.activation.FileDataSource;
+import javax.mail.Authenticator;
+import javax.mail.Multipart;
+import javax.mail.PasswordAuthentication;
+import javax.mail.Session;
+import javax.mail.internet.InternetAddress;
 import javax.naming.ConfigurationException;
+import javax.mail.Transport;
+import javax.mail.internet.MimeBodyPart;
+import javax.mail.internet.MimeMessage;
+import javax.mail.internet.MimeMultipart;
 import java.io.*;
 import java.net.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import org.apache.commons.lang.StringUtils;
+//import org.openmrs.module.reporting.report.Report;
+//import org.springframework.stereotype.Component;
 
 public class ICareServiceImpl extends BaseOpenmrsService implements ICareService {
 	
 	ICareDao dao;
 	
 	PatientDAO patientDAO;
+	
+	PasswordHistoryDAO passwordHistoryDAO;
+	
+	RoleDAO roleDAO;
+	
+	PrivilegeDAO privilegeDAO;
+	
+	ProgramWorkflowDAO programWorkflowDAO;
+	
+	EncounterPatientStateDAO encounterPatientStateDAO;
+	
+	EncounterPatientProgramDAO encounterPatientProgramDAO;
 	
 	UserService userService;
 	
@@ -59,6 +82,30 @@ public class ICareServiceImpl extends BaseOpenmrsService implements ICareService
 	 */
 	public void setDao(ICareDao dao) {
 		this.dao = dao;
+	}
+	
+	public void setPasswordHistoryDAO(PasswordHistoryDAO passwordHistoryDAO) {
+		this.passwordHistoryDAO = passwordHistoryDAO;
+	}
+	
+	public void setRoleDAO(RoleDAO roleDAO) {
+		this.roleDAO = roleDAO;
+	}
+	
+	public void setPrivilegeDAO(PrivilegeDAO privilegeDAO) {
+		this.privilegeDAO = privilegeDAO;
+	}
+	
+	public void setProgramWorkflowDAO(ProgramWorkflowDAO programWorkflowDAO) {
+		this.programWorkflowDAO = programWorkflowDAO;
+	}
+	
+	public void setEncounterPatientStateDAO(EncounterPatientStateDAO encounterPatientStateDAO) {
+		this.encounterPatientStateDAO = encounterPatientStateDAO;
+	}
+	
+	public void setEncounterPatientProgramDAO(EncounterPatientProgramDAO encounterPatientProgramDAO) {
+		this.encounterPatientProgramDAO = encounterPatientProgramDAO;
 	}
 	
 	/**
@@ -151,6 +198,11 @@ public class ICareServiceImpl extends BaseOpenmrsService implements ICareService
 	}
 	
 	@Override
+	public List<ItemPrice> getItemPricesByConceptId(Integer Id) {
+		return dao.getItemPricesByConceptId(Id);
+	}
+	
+	@Override
 	public List<ItemPrice> getItemPrices() {
 		return dao.getItemPrices();
 	}
@@ -199,12 +251,13 @@ public class ICareServiceImpl extends BaseOpenmrsService implements ICareService
 	}
 	
 	@Override
-	public List<Item> getItems(String search, Integer limit, Integer startIndex, String department, Item.Type type) {
-		return dao.getItems(search, limit, startIndex, department, type);
+	public List<Item> getItems(String search, Integer limit, Integer startIndex, String department, Item.Type type,
+	        Boolean stockable) {
+		return dao.getItems(search, limit, startIndex, department, type, stockable);
 	}
 	
 	@Override
-	public Prescription savePrescription(Prescription prescription) {
+	public Prescription savePrescription(Prescription prescription, String status, String remarks) {
 		if (prescription.getUuid() != null) {
 			Prescription existingPrescription = (Prescription) Context.getOrderService().getOrderByUuid(
 			    prescription.getUuid());
@@ -223,23 +276,38 @@ public class ICareServiceImpl extends BaseOpenmrsService implements ICareService
 				prescription = existingPrescription;
 			}
 		}
+		
+		if (prescription.getPreviousOrder() != null) {
+			Double quantity = prescription.getQuantity();
+			Prescription previousOrder = (Prescription) Context.getOrderService().getOrderByUuid(
+			    prescription.getPreviousOrder().getUuid());
+			prescription.updatePrescription(previousOrder);
+			prescription.setQuantity(quantity);
+		}
 		AdministrationService administrationService = Context.getAdministrationService();
 		administrationService.setGlobalProperty("validation.disable", "true");
 		System.out.println("Validation:" + ValidateUtil.getDisableValidation());
 		ValidateUtil.setDisableValidation(true);
 		System.out.println("Validation:" + ValidateUtil.getDisableValidation());
 		prescription = (Prescription) Context.getOrderService().saveOrder(prescription, null);
+		// Set respective sOrderStatustatus
+		if (status != null) {
+			OrderStatus orderStatus = Context.getService(StoreService.class).setDrugOrderStatus(prescription.getUuid(),
+			    status, remarks);
+		}
 		administrationService.setGlobalProperty("validation.disable", "false");
 		return prescription;
 	}
 	
 	@Override
-	public List<Visit> getVisitsByOrderType(String search, String orderTypeUuid, String locationUuid,
-	        OrderStatus.OrderStatusCode prescriptionStatus, Order.FulfillerStatus fulfillerStatus, Integer limit,
-	        Integer startIndex, VisitWrapper.OrderBy orderBy, VisitWrapper.OrderByDirection orderByDirection,
-	        String attributeValueReference, VisitWrapper.PaymentStatus paymentStatus) {
-		return this.dao.getVisitsByOrderType(search, orderTypeUuid, locationUuid, prescriptionStatus, fulfillerStatus,
-		    limit, startIndex, orderBy, orderByDirection, attributeValueReference, paymentStatus);
+	public List<Visit> getVisitsByOrderType(String search, String orderTypeUuid, String encounterTypeUuid,
+	        String locationUuid, OrderStatus.OrderStatusCode prescriptionStatus, Order.FulfillerStatus fulfillerStatus,
+	        Integer limit, Integer startIndex, VisitWrapper.OrderBy orderBy, VisitWrapper.OrderByDirection orderByDirection,
+	        String attributeValueReference, VisitWrapper.PaymentStatus paymentStatus, String visitAttributeTypeUuid,
+	        String sampleCategory, String exclude, Boolean includeInactive, Boolean includeDeadPatients) {
+		return this.dao.getVisitsByOrderType(search, orderTypeUuid, encounterTypeUuid, locationUuid, prescriptionStatus,
+		    fulfillerStatus, limit, startIndex, orderBy, orderByDirection, attributeValueReference, paymentStatus,
+		    visitAttributeTypeUuid, sampleCategory, exclude, includeInactive, includeDeadPatients);
 	}
 	
 	@Override
@@ -397,6 +465,131 @@ public class ICareServiceImpl extends BaseOpenmrsService implements ICareService
 	}
 	
 	@Override
+	public List<String> generateCode(String globalPropertyUuid, String metadataType, Integer count) throws Exception {
+		return dao.generateCode(globalPropertyUuid, metadataType, count);
+	}
+	
+	@Override
+	public OrderStatus saveOrderStatus(OrderStatus orderStatus) {
+		OrderStatus savedOrderStatus = Context.getService(StoreService.class).setDrugOrderStatus(
+		    orderStatus.getOrder().getUuid(), orderStatus.getStatus().toString(), orderStatus.getRemarks());
+		return savedOrderStatus;
+	}
+	
+	@Override
+	public void updatePasswordHistory() throws Exception {
+		List<User> users = Context.getUserService().getAllUsers();
+		List<User> usersInPasswordHistory = this.passwordHistoryDAO.getUsersInPasswordHistory();
+		PasswordHistory passwordHistory = new PasswordHistory();
+		Date date = new Date();
+		
+		for (User user : users) {
+			if (!(usersInPasswordHistory.contains(user))) {
+				passwordHistory.setUser(user);
+				passwordHistory.setChangedDate(date);
+				passwordHistory.setPassword("Password encryption");
+				this.passwordHistoryDAO.save(passwordHistory);
+				
+			}
+		}
+	}
+	
+	@Override
+	public PasswordHistory savePasswordHistory(User user, String newPassword) throws Exception {
+		Date date = new Date();
+		PasswordHistory passwordHistory = new PasswordHistory();
+		if (user != null) {
+			passwordHistory.setUser(user);
+		} else {
+			passwordHistory.setUser(Context.getAuthenticatedUser());
+		}
+		if (newPassword != null) {
+			passwordHistory.setPassword(newPassword);
+		}
+		passwordHistory.setChangedDate(date);
+		
+		return passwordHistoryDAO.save(passwordHistory);
+	}
+	
+	@Override
+	public List<PasswordHistory> getUserPasswordHistory(String uuid) {
+		
+		return passwordHistoryDAO.getUsersPasswordHistory(uuid);
+	}
+	
+	@Override
+	public List<Role> getRoles(String q, Integer startIndex, Integer limit) {
+		return roleDAO.getRoles(q, startIndex, limit);
+	}
+	
+	@Override
+	public List<Privilege> getPrivileges(String q, Integer startIndex, Integer limit) {
+		return privilegeDAO.getPrivileges(q, startIndex, limit);
+	}
+	
+	@Override
+	public ProgramWorkflow saveProgramWorkflow(ProgramWorkflow programWorkflow) {
+		return programWorkflowDAO.save(programWorkflow);
+	}
+	
+	@Override
+	public List<PatientProgram> getPatientProgram(String programUuid, String patientUuid, Integer startIndex, Integer limit, Boolean includeDeadPatients)
+	        throws Exception {
+		Program program = null;
+		if (programUuid != null) {
+			program = Context.getProgramWorkflowService().getProgramByUuid(programUuid);
+			if (program == null) {
+				throw new Exception("The program with the given Uuid does not exist");
+			}
+		}
+		
+		Patient patient = null;
+		if (patientUuid != null) {
+			patient = Context.getPatientService().getPatientByUuid(patientUuid);
+			if (patient == null) {
+				throw new Exception("The patient with the given Uuid does not exist");
+			}
+			
+		}
+		// TODO: ADD SUPPORT FOR THE API TO ACCOMODATE THE REMAINING PARAMETERS
+		List<PatientProgram> patientPrograms = Context.getProgramWorkflowService().getPatientPrograms(patient, program, null, null, null, null, false);
+
+		List<PatientProgram> existingPatientPrograms = new ArrayList<>();
+		for(PatientProgram patientProgram : patientPrograms){
+			if(!patientProgram.getPatient().getPerson().getDead()){
+				existingPatientPrograms.add(patientProgram);
+			}
+		}
+		if(includeDeadPatients){
+			return  patientPrograms;
+		}
+		else{
+			return existingPatientPrograms;
+		}
+
+	}
+	
+	@Override
+	public EncounterPatientState saveEncounterPatientState(EncounterPatientState encounterPatientState) {
+		return encounterPatientStateDAO.save(encounterPatientState);
+	}
+	
+	@Override
+	public List<Encounter> getEncountersByPatientState(String patientStateUuid) {
+		return encounterPatientStateDAO.getEncountersByPatientState(patientStateUuid);
+	}
+	
+	@Override
+	public EncounterPatientProgram saveEncounterPatientProgram(EncounterPatientProgram encounterPatientProgram) {
+		return encounterPatientProgramDAO.save(encounterPatientProgram);
+	}
+
+	@Override
+	public List<Encounter> getEncountersByPatientProgram(String patientProgramUuid) {
+		return encounterPatientProgramDAO.getEncounterByPatientProgram(patientProgramUuid);
+	}
+
+	@Override
 	public Item getItemByConceptUuid(String uuid) {
 		return dao.getItemByConceptUuid(uuid);
 	}
@@ -413,21 +606,22 @@ public class ICareServiceImpl extends BaseOpenmrsService implements ICareService
 		
 		if (hoursVisitEnd == null || hoursVisitEnd.trim().equals("")) {
 			//newDate = new Date(System.currentTimeMillis() - TimeUnit.HOURS.toMillis(24));
+			
 		} else {
 			Date newDate = new Date(System.currentTimeMillis() - TimeUnit.HOURS.toMillis(Integer.valueOf(hoursVisitEnd)));
 			List<Visit> visits = dao.getOpenVisit();
 			for (Visit visit : visits) {
-				if (!patientIsAdmitted(visit) && newDate.after(visit.getStartDatetime())) {
+				if ((!patientIsAdmitted(visit) && newDate.after(visit.getStartDatetime())) || patientIsDischarged(visit)) {
 					VisitWrapper visitWrapper = new VisitWrapper(visit);
-					try {
-						if (!(visitWrapper.isInsurance() && visitWrapper.getInsuranceName().toLowerCase().equals("nhif"))) {
-							Context.getVisitService().endVisit(visit, new Date());
-							
-						}
-					}
-					catch (ConfigurationException e) {
-						e.printStackTrace();
-					}
+					//try {
+					//if (!(visitWrapper.isInsurance() && visitWrapper.getInsuranceName().toLowerCase().equals("nhif"))) {
+					Context.getVisitService().endVisit(visit, new Date());
+					
+					//}
+					//}
+					//catch (ConfigurationException e) {
+					//	e.printStackTrace();
+					//}
 				}
 			}
 		}
@@ -475,8 +669,11 @@ public class ICareServiceImpl extends BaseOpenmrsService implements ICareService
 	}
 	
 	@Override
-	public List<Concept> getConcepts(String q, String conceptClass, String searchTerm, Integer limit, Integer startIndex) {
-		return dao.getConceptsBySearchParams(q, conceptClass, searchTerm, limit, startIndex);
+	public ListResult getConcepts(String q, String conceptClass, String searchTerm, Integer limit, Integer startIndex,
+	        String searchTermOfConceptSetToExclude, String conceptSourceUuid, String referenceTermCode,
+	        String attributeType, String attributeValue, Pager pager) {
+		return dao.getConceptsBySearchParams(q, conceptClass, searchTerm, limit, startIndex,
+		    searchTermOfConceptSetToExclude, conceptSourceUuid, referenceTermCode, attributeType, attributeValue, pager);
 	}
 	
 	@Override
@@ -487,6 +684,16 @@ public class ICareServiceImpl extends BaseOpenmrsService implements ICareService
 	@Override
 	public List<ConceptSet> getConceptsSetsByConcept(String concept) {
 		return dao.getConceptsSetsByConcept(concept);
+	}
+	
+	@Override
+	public String unRetireConcept(String uuid) {
+		return dao.unRetireConcept(uuid);
+	}
+	
+	@Override
+	public List<Location> getLocations(String attributeType, String value, Integer limit, Integer startIndex) {
+		return dao.getLocations(attributeType, value, limit, startIndex);
 	}
 	
 	@Override
@@ -504,13 +711,23 @@ public class ICareServiceImpl extends BaseOpenmrsService implements ICareService
 		if (visit.getStopDatetime() == null) {
 			for (Encounter encounter : visit.getEncounters()) {
 				for (Order order : encounter.getOrders()) {
-					if (order.getOrderType().getName().equals("Bed Order") && (new Date()).before(order.getAutoExpireDate())) {
+					if (order.getOrderType().getName().equals("Bed Order")) {
 						return true;
 					}
 				}
 			}
 		}
 		return false;
+	}
+	
+	Boolean patientIsDischarged(Visit visit) {
+		Boolean dischargeState = false;
+		for (Encounter encounter : visit.getEncounters()) {
+			if (encounter.getEncounterType().getName().equals("Discharge")) {
+				dischargeState = true;
+			}
+		}
+		return dischargeState;
 	}
 	
 	public Summary getSummary() {
@@ -522,39 +739,159 @@ public class ICareServiceImpl extends BaseOpenmrsService implements ICareService
 		return dao.getDrugs(concept, limit, startIndex);
 	}
 	
-	public String getClientsFromExternalSystems(String identifier, String identifierReference) throws IOException,
-	        URISyntaxException {
+	@Override
+	public Map<String, Object> createWorkFlowState(ProgramWorkflowState state) throws Exception {
+		try {
+			ProgramWorkflowService programWorkflowService = Context.getProgramWorkflowService();
+			programWorkflowService.getWorkflow(state.getProgramWorkflow().getId()).addState(state);
+		}
+		catch (Exception e) {
+			throw new RuntimeException("Error occurred while sending  email", e);
+		}
+		return null;
+	}
+	
+	private Session emailSession = null;
+	
+	/**
+	 * Returns the email session
+	 */
+	@Override
+	public Session getEmailSession() throws Exception {
+		if (emailSession == null) {
+			AdministrationService as = Context.getAdministrationService();
+			Properties p = new Properties();
+			p.put("mail.transport.protocol", as.getGlobalProperty("mail.transport_protocol", "smtp"));
+			p.put("mail.smtp.host", as.getGlobalProperty("mail.smtp_host", "localhost"));
+			p.put("mail.smtp.port", as.getGlobalProperty("mail.smtp_port", "587")); // mail.smtp_port
+			p.put("mail.smtp.auth", as.getGlobalProperty("mail.smtp_auth", "test")); // mail.smtp_auth
+			p.put("mail.smtp.starttls.enable", as.getGlobalProperty("mail.smtp.starttls.enable"));
+			p.put("mail.debug", as.getGlobalProperty("mail.debug", "false"));
+			p.put("mail.from", as.getGlobalProperty("mail.from", ""));
+			final String user = as.getGlobalProperty("mail.user", "");
+			final String password = as.getGlobalProperty("mail.password", "");
+			
+			if (StringUtils.isNotBlank(user) && StringUtils.isNotBlank(password.toString())) {
+				emailSession = Session.getInstance(p, new Authenticator() {
+					
+					public PasswordAuthentication getPasswordAuthentication() {
+						return new PasswordAuthentication(user, password);
+					}
+				});
+			} else {
+				emailSession = Session.getInstance(p);
+			}
+		}
+		return emailSession;
+	}
+	
+	/**
+	 * Performs some action on the given report
+	 */
+	@Override
+	public String processEmail(Properties emailProperties) throws Exception {
+		try {
+			MimeMessage m = new MimeMessage(getEmailSession());
+			m.setFrom(new InternetAddress(emailProperties.getProperty("from")));
+			
+			for (String recipient : emailProperties.getProperty("to", "").split("\\,")) {
+				
+				m.addRecipient(javax.mail.Message.RecipientType.TO, new InternetAddress(recipient));
+			}
+			
+			// TODO: Make these such that they can contain report information
+			m.setSubject(emailProperties.getProperty("subject"));
+			Multipart multipart = new MimeMultipart();
+			MimeBodyPart contentBodyPart = new MimeBodyPart();
+			String content = emailProperties.getProperty("content", "");
+			if (emailProperties.getProperty("attachmentFile") != null) {
+				content += emailProperties.getProperty("attachmentFile");
+			}
+			contentBodyPart.setContent(content, "text/html");
+			multipart.addBodyPart(contentBodyPart);
+			
+			if (emailProperties.getProperty("attachment") != null) {
+				MimeBodyPart attachmentPart = new MimeBodyPart();
+				DataSource source = new FileDataSource(new File(emailProperties.getProperty("attachment")));
+				attachmentPart.setDataHandler(new DataHandler(source));
+				attachmentPart.setFileName(source.getName());
+				multipart.addBodyPart(attachmentPart);
+			}
+			
+			//			if (emailProperties.getProperty("attachmentFile") != null) {
+			//				String htmlContent = emailProperties.getProperty("attachmentFile");
+			//				ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+			//				Document document = new Document();
+			//
+			//				PdfWriter writer = PdfWriter.getInstance(document, outputStream);
+			//				document.open();
+			//				HTMLWorker htmlWorker = new HTMLWorker(document);
+			//				htmlWorker.parse(new StringReader(htmlContent));
+			//				document.close();
+			//
+			//				//File encryption implementation
+			//				//				PdfReader reader = new PdfReader(outputStream.toByteArray());
+			//				//				PdfStamper stamper = new PdfStamper(reader, outputStream);
+			//				//				stamper.setEncryption("a".getBytes("UTF-8"), "b".getBytes("UTF-8"), PdfWriter.ALLOW_PRINTING, PdfWriter.ENCRYPTION_AES_128);
+			//				//				stamper.close();
+			//				//				reader.close();
+			//				//
+			//				byte[] pdfContent = outputStream.toByteArray();
+			//
+			//				MimeBodyPart attachmentPart = new MimeBodyPart();
+			//
+			//				DataSource dataSource = new ByteArrayDataSource(pdfContent, "application/pdf");
+			//				attachmentPart.setDataHandler(new DataHandler(dataSource));
+			//				attachmentPart.setFileName(emailProperties.getProperty("attachmentFileName"));
+			//				multipart.addBodyPart(attachmentPart);
+			//			}
+			
+			//			if (report.getRenderedOutput() != null && "true".equalsIgnoreCase(configuration.getProperty("addOutputAsAttachment"))) {
+			//			MimeBodyPart attachment = new MimeBodyPart();
+			//			Object output = null;
+			//			attachment.setDataHandler(new DataHandler(output, "text/html"));
+			//			attachment.setFileName(emailProperties.getProperty("attachmentName"));
+			//			multipart.addBodyPart(attachment);
+			//			}
+			
+			m.setContent(multipart);
+			Transport.send(m);
+		}
+		catch (Exception e) {
+			throw new RuntimeException("Error occurred while sending  email: " + e);
+		}
+		return "SENT EMAIL";
+	}
+	
+	public String getClientsFromExternalSystems(String identifier, String identifierReference, String basicAuthKey)
+	        throws IOException, URISyntaxException {
 		AdministrationService administrationService = Context.getService(AdministrationService.class);
-		
-		String baseUrl = administrationService.getGlobalProperty("iCare.externalSystems.integrated.pimaCovid.baseUrl");
-		//				"https://covid19-dev.moh.go.tz";
-		String username = administrationService.getGlobalProperty("iCare.externalSystems.integrated.pimaCovid.username");
-		//				"lisintegration";
-		String password = administrationService.getGlobalProperty("iCare.externalSystems.integrated.pimaCovid.password");
-		//				"Dhis@2022";
-		String ou = administrationService.getGlobalProperty("iCare.externalSystems.integrated.pimaCovid.referenceOuUid");
-		//				"m0frOspS7JY";
-		String program = administrationService.getGlobalProperty("iCare.externalSystems.integrated.pimaCovid.programUid");
-		//				"MNhYWMkR0Z7";
+		String systemKey = "pimaCovid";
+		String baseUrl = administrationService.getGlobalProperty("iCare.externalSystems.integrated." + systemKey
+		        + ".baseUrl");
+		String username = administrationService.getGlobalProperty("iCare.externalSystems.integrated." + systemKey
+		        + ".username");
+		String password = administrationService.getGlobalProperty("iCare.externalSystems.integrated." + systemKey
+		        + ".password");
+		String ou = administrationService.getGlobalProperty("iCare.externalSystems.integrated." + systemKey
+		        + ".referenceOuUid");
+		String program = administrationService.getGlobalProperty("iCare.externalSystems.integrated." + systemKey
+		        + ".programUid");
 		//		TODO: Find a way to softcode the API References
-		
 		URL url;
 		if (baseUrl == null || baseUrl.trim().equals("")) {
 			throw new VerificationException("Destination server address url is not set. Please set " + baseUrl + ".");
 		}
-		String path = "/api/trackedEntityInstances.json?filter="
-		        + identifierReference
-		        + ":EQ:"
-		        + identifier
-		        + "&ou=m0frOspS7JY&ouMode=DESCENDANTS&program=MNhYWMkR0Z7&fields=attributes[attribute,code,value],enrollments[*],orgUnit,trackedEntityInstance&paging=false";
+		//		this.getCreator().getUserProperties().get("")
+		String path = "/api/trackedEntityInstances.json?filter=" + identifierReference + ":EQ:" + identifier + "&ou=" + ou
+		        + "&ouMode=DESCENDANTS&program=" + program
+		        + "&fields=attributes[attribute,code,value],enrollments[*],orgUnit,trackedEntityInstance&paging=false";
 		url = new URL(baseUrl.concat(path));
 		
 		HttpURLConnection con = (HttpURLConnection) url.openConnection();
 		
 		String userCredentials = username.concat(":").concat(password);
 		String basicAuth = "Basic " + new String(Base64.getEncoder().encode(userCredentials.getBytes()));
-		
-		con.setRequestProperty("Authorization", basicAuth);
 		
 		con.setRequestMethod("GET");
 		con.setRequestProperty("Content-Type", "application/json; utf-8");
@@ -581,4 +918,164 @@ public class ICareServiceImpl extends BaseOpenmrsService implements ICareService
 			return String.valueOf(content);
 		}
 	}
+	
+	public String createPimaCovidLabRequest(Map<String, Object> request, String basicAuthKey)
+            throws IOException {
+			AdministrationService administrationService = Context.getService(AdministrationService.class);
+
+			String baseUrl = administrationService.getGlobalProperty("iCare.externalSystems.integrated.pimaCovid.baseUrl");
+			String username = administrationService.getGlobalProperty("iCare.externalSystems.integrated.pimaCovid.username");
+			String password = administrationService.getGlobalProperty("iCare.externalSystems.integrated.pimaCovid.password");
+			URL url;
+			if (baseUrl == null || baseUrl.trim().equals("")) {
+				throw new VerificationException("Destination server address url is not set. Please set " + baseUrl + ".");
+			}
+			//		this.getCreator().getUserProperties().get("")
+			String path = "/api/events.json?";
+			url = new URL(baseUrl.concat(path));
+			System.out.println(request);
+			String returnValue = "";
+
+			BufferedReader reader;
+			String line;
+			StringBuffer responseContent = new StringBuffer();
+
+			HttpURLConnection con = (HttpURLConnection) url.openConnection();
+
+//		String basicAuth = "Basic " + basicAuthKey;
+			String userCredentials = username.concat(":").concat(password);
+			String basicAuth = "Basic " + new String(Base64.getEncoder().encode(userCredentials.getBytes()));
+
+			con.setRequestMethod("POST");
+			con.setRequestProperty("Content-Type", "application/json; utf-8");
+			con.setRequestProperty("Accept", "application/json");
+			con.setRequestProperty("Authorization", basicAuth);
+			con.setDoOutput(true);
+
+			ObjectMapper mapper = new ObjectMapper();
+			// Converting the Object to JSONString
+			String jsonString = mapper.writeValueAsString(request);
+			System.out.println(jsonString);
+
+			// int status = httpURLConnection.getResponseCode();
+
+			try (OutputStream outputStream = con.getOutputStream()) {
+				byte[] input = jsonString.getBytes("utf-8");
+				outputStream.write(input, 0, input.length);
+			}
+
+			reader = new BufferedReader(new InputStreamReader(con.getInputStream()));
+			while ((line = reader.readLine()) != null) {
+				responseContent.append(line);
+			}
+			reader.close();
+			return responseContent.toString();
+		}
+	
+	public String savePimaCovidLabResult(Map<String, Object> results)
+            throws IOException {
+			AdministrationService administrationService = Context.getService(AdministrationService.class);
+
+			String baseUrl = administrationService.getGlobalProperty("iCare.externalSystems.integrated.pimaCovid.baseUrl");
+			String username = administrationService.getGlobalProperty("iCare.externalSystems.integrated.pimaCovid.username");
+			String password = administrationService.getGlobalProperty("iCare.externalSystems.integrated.pimaCovid.password");
+			String usernamePropertyKey = administrationService.getGlobalProperty("iCare.externalSystems.integrated.pimaCovid.usernamePropertyKey");
+			String passwordPropertyKey = administrationService.getGlobalProperty("iCare.externalSystems.integrated.pimaCovid.passwordPropertyKey");
+			URL url;
+			if (baseUrl == null || baseUrl.trim().equals("")) {
+				throw new VerificationException("Destination server address url is not set. Please set " + baseUrl + ".");
+			}
+			//		this.getCreator().getUserProperties().get("")
+			String usernameProperty = Context.getAuthenticatedUser().getUserProperties().get(usernamePropertyKey);
+			String passwordPropertyEncrypted = Context.getAuthenticatedUser().getUserProperties().get(passwordPropertyKey);
+
+			String path = "/api/events.json?";
+			url = new URL(baseUrl.concat(path));
+			System.out.println(results);
+
+			BufferedReader reader;
+			String line;
+			StringBuffer responseContent = new StringBuffer();
+
+			HttpURLConnection con = (HttpURLConnection) url.openConnection();
+
+//		String basicAuth = "Basic " + basicAuthKey;
+			String userCredentials = username.concat(":").concat(password);
+			String basicAuth = "Basic " + new String(Base64.getEncoder().encode(userCredentials.getBytes()));
+
+			con.setRequestMethod("POST");
+			con.setRequestProperty("Content-Type", "application/json; utf-8");
+			con.setRequestProperty("Accept", "application/json");
+			con.setRequestProperty("Authorization", basicAuth);
+			con.setDoOutput(true);
+
+			ObjectMapper mapper = new ObjectMapper();
+			// Converting the Object to JSONString
+			String jsonString = mapper.writeValueAsString(results);
+			System.out.println(jsonString);
+
+			// int status = httpURLConnection.getResponseCode();
+
+			try (OutputStream outputStream = con.getOutputStream()) {
+				byte[] input = jsonString.getBytes("utf-8");
+				outputStream.write(input, 0, input.length);
+			}
+
+			reader = new BufferedReader(new InputStreamReader(con.getInputStream()));
+			while ((line = reader.readLine()) != null) {
+				responseContent.append(line);
+			}
+			reader.close();
+			return responseContent.toString();
+		}
+	
+	public String verifyExternalSystemCredentials(String username, String password, String systemKey) throws IOException {
+		AdministrationService administrationService = Context.getService(AdministrationService.class);
+		
+		String baseUrl = administrationService.getGlobalProperty("iCare.externalSystems.integrated." + systemKey
+		        + ".baseUrl");
+		URL url;
+		if (baseUrl == null || baseUrl.trim().equals("")) {
+			throw new VerificationException("Destination server address url is not set. Please set base url for system"
+			        + systemKey + ".");
+		}
+		
+		// TODO: Consider to change this to /api/me.json?fields=name
+		String path = "/api/organisationUnits.json?";
+		url = new URL(baseUrl.concat(path));
+		
+		HttpURLConnection con = (HttpURLConnection) url.openConnection();
+		
+		String userCredentials = username.concat(":").concat(password);
+		String basicAuth = "Basic " + new String(Base64.getEncoder().encode(userCredentials.getBytes()));
+		
+		con.setRequestMethod("GET");
+		con.setRequestProperty("Content-Type", "application/json; utf-8");
+		con.setRequestProperty("Accept", "application/json");
+		con.setRequestProperty("Authorization", basicAuth);
+		try {
+			BufferedReader bufferIn = new BufferedReader(new InputStreamReader(con.getInputStream()));
+			String inputLine;
+			StringBuffer content = new StringBuffer();
+			while ((inputLine = bufferIn.readLine()) != null) {
+				content.append(inputLine);
+			}
+			bufferIn.close();
+			return String.valueOf(content);
+		}
+		catch (Exception e) {
+			BufferedReader in = new BufferedReader(new InputStreamReader(con.getErrorStream()));
+			String inputLine;
+			StringBuffer content = new StringBuffer();
+			while ((inputLine = in.readLine()) != null) {
+				content.append(inputLine);
+			}
+			in.close();
+			return String.valueOf(content);
+		}
+	}
+	
+	//	public String voidOrder(String uuid, String voidReason) {
+	//		return dao.voidOrder(uuid, voidReason);
+	//	}
 }

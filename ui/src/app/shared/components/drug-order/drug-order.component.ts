@@ -34,6 +34,7 @@ export class DrugOrderComponent implements OnInit, AfterViewInit {
   @Input() showAddButton: boolean;
   @Input() hideActionButtons: boolean;
   @Input() encounterUuid: string;
+  @Input() drugInstructions: string;
   @Input() patient: Patient;
   @Input() isFromDoctor: boolean;
   @Input() locations: any[];
@@ -68,6 +69,8 @@ export class DrugOrderComponent implements OnInit, AfterViewInit {
   provider$: Observable<ProviderGet>;
   dispensingLocations$: Observable<any>;
   errors: any[] = [];
+
+  @Output() enterKeyPressedFields: EventEmitter<any> = new EventEmitter<any>();
   constructor(
     private drugOrderService: DrugOrdersService,
     private store: Store<AppState>
@@ -107,6 +110,7 @@ export class DrugOrderComponent implements OnInit, AfterViewInit {
             this.generalPrescriptionFrequencyConcept,
           specificDrugConceptUuid: this.specicDrugConceptUuid,
           fromDispensing: this.fromDispensing,
+          drugInstructions: this.drugInstructions || "",
         }
       )
       .pipe(
@@ -134,26 +138,6 @@ export class DrugOrderComponent implements OnInit, AfterViewInit {
     this.dispensingLocations$ = this.store.select(getLocationsByTagName, {
       tagName: "Dispensing Unit",
     });
-    // zip(
-    //   this.drugOrderService.getDrugOrderMetadata(
-    //     this.drugOrder,
-    //     this.locations,
-    //     this.fromDispensing
-    //   ),
-    //   this.store.pipe(select(getProviderDetails)).pipe(take(1))
-    // ).subscribe(
-    //   (res) => {
-    //     console.log('res', res);
-    //     this.loadingMetadata = false;
-    //     this.drugOrderMetadata = res[0];
-    //     this.drugFormField = this.drugOrderMetadata.drugFormField;
-    //     this.provider = res[1];
-    //   },
-    //   (error) => {
-    //     this.loadingMetadata = false;
-    //     this.loadingMetadataError = error;
-    //   }
-    // );
   }
 
   ngAfterViewInit(): void {}
@@ -205,5 +189,9 @@ export class DrugOrderComponent implements OnInit, AfterViewInit {
   onCancel(e) {
     e.stopPropagation();
     this.cancelForm.emit();
+  }
+
+  onGetEnterKeyResponsedFields(keys: Event): void {
+    this.enterKeyPressedFields.emit(keys);
   }
 }

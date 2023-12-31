@@ -63,7 +63,7 @@ export class VisitEffects {
         of(action).pipe(
           withLatestFrom(
             this.store.pipe(select(getCurrentPatient)),
-            this.store.pipe(select(getCurrentLocation))
+            this.store.pipe(select(getCurrentLocation(false)))
           )
         )
       ),
@@ -93,7 +93,6 @@ export class VisitEffects {
                   isEmergency: isEmergency,
                 }),
                 loadPatientBills({ patientUuid: currentPatient?.id }),
-                go({ path: ["/registration/home"] }),
               ];
             }),
             catchError((error) => {

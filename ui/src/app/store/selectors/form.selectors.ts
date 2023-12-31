@@ -1,9 +1,9 @@
-import { createSelector } from '@ngrx/store';
-import { FormConfig } from 'src/app/shared/modules/form/models/form-config.model';
-import { ICAREForm } from 'src/app/shared/modules/form/models/form.model';
-import { AppState, getRootState } from '../reducers';
-import { formAdapter, FormState } from '../states/form.state';
-import { filter } from 'lodash';
+import { createSelector } from "@ngrx/store";
+import { FormConfig } from "src/app/shared/modules/form/models/form-config.model";
+import { ICAREForm } from "src/app/shared/modules/form/models/form.model";
+import { AppState, getRootState } from "../reducers";
+import { formAdapter, FormState } from "../states/form.state";
+import { filter, orderBy } from "lodash";
 
 const getFormState = createSelector(
   getRootState,
@@ -38,17 +38,17 @@ export const getFormsLoadingState = createSelector(
   (formState: FormState) => formState.loading
 );
 
-export const getCustomOpenMRSFormById = createSelector(
-  getFormsEntities,
-  (formEntities, props) => formEntities[props?.id] || null
-);
+export const getCustomOpenMRSFormById = (id: string) =>
+  createSelector(getAllForms, (allForms) => {
+    let form = (allForms?.filter((form) => form?.uuid === id) || [])[0] || null;
+    return form;
+  });
 
-export const getCustomOpenMRSFormsByIds = createSelector(
-  getAllForms,
-  (allForms, props) =>
-    filter(allForms, (form) => {
-      if (props?.formUUids.indexOf(form.uuid) > -1) {
-        return form;
-      }
-    })
-);
+export const getCustomOpenMRSFormsByIds = (formUUids: string[]) =>
+  createSelector(getAllForms, (allForms) => {
+    return orderBy(
+      filter(allForms, (form) => formUUids.indexOf(form.uuid) > -1),
+      ["name"],
+      ["asc"]
+    );
+  });

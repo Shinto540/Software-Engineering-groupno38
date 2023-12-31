@@ -137,10 +137,12 @@ export class DrugOrdersService {
     );
   }
 
-  dispenseOrderedDrugOrder(dispenseDetails): Observable<any> {
+  dispenseOrderedDrugOrder(dispenseDetails: any): Observable<any> {
     return this.openmrsService
       .post(`store/drugOrder/${dispenseDetails?.uuid}/dispense`, {
         location: dispenseDetails?.location,
+        drugUuid: dispenseDetails?.drug?.uuid,
+        quantity: Number(dispenseDetails?.quantity),
       })
       .pipe(
         map((response) => response),
@@ -155,6 +157,8 @@ export class DrugOrdersService {
     location?: string,
     provider?: string
   ): Observable<any> {
+    console.log(order);
+    // return of(null);
     return this.openmrsService.post("icare/prescription", order);
     return this.getDrugOrderEncounter(
       {
@@ -377,16 +381,7 @@ export class DrugOrdersService {
       this.getDosingUnit(),
       this.getOrderFrequency(),
       this.getDrugRoutes(),
-      this.getDurationUnits(),
-      zip(
-        ...locations.map((location) =>
-          this.stockService.getAvailableStocks(location.id)
-        )
-      ).pipe(
-        map((res) => {
-          return flatten(res);
-        })
-      )
+      this.getDurationUnits()
     ).pipe(
       map((res) => {
         const metadata = {
@@ -396,7 +391,7 @@ export class DrugOrdersService {
           drugOrderFrequencies: res[2],
           drugRoutes: res[3],
           durationUnits: res[4],
-          stockedDrugs: res[5],
+          stockedDrugs: [],
         };
 
         const drugFormField = new Dropdown({
@@ -446,17 +441,15 @@ export class DrugOrdersService {
               ]?.value?.uuid,
         });
 
-        console.log(
-          "==> Frequency: ",
+        const freq =
           doctorPrescriptionDetails?.obs[
             metadataConfigs?.generalPrescriptionFrequencyConcept
-          ]?.value?.display
-        );
-        console.log("==> Frequencies: ", metadata.drugOrderFrequencies);
+          ]?.value?.uuid;
 
         const drugOrderFrequencyField = new Dropdown({
           id: "frequency",
-          options: (metadata.drugOrderFrequencies || []).map((orderFrequency) => ({
+          options: (metadata.drugOrderFrequencies || []).map(
+            (orderFrequency) => ({
               id: orderFrequency.uuid,
               key: orderFrequency.uuid,
               label: orderFrequency.name,
@@ -467,11 +460,9 @@ export class DrugOrdersService {
           order: 4,
           required: true,
           key: "frequency",
-          value: !metadataConfigs.fromDispensing
+          value: drugOrder?.frequency
             ? drugOrder?.frequency
-            : doctorPrescriptionDetails?.obs[
-                metadataConfigs?.generalPrescriptionFrequencyConcept
-              ]?.value?.uuid,
+            : freq?.split("AAAA")[0] + "OFAAAAAAAAAAAAAAA",
         });
 
         const drugRoutesField = new Dropdown({
@@ -553,7 +544,7 @@ export class DrugOrdersService {
         });
 
         const instructionField = new Textbox({
-          value: drugOrder?.instructions,
+          value: drugOrder?.instructions || metadataConfigs?.drugInstructions,
           key: "instructions",
           id: "instructions",
           label: "Instructions",

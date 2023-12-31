@@ -18,6 +18,7 @@ import { InvestigationProcedureService } from "../../resources/investigation-pro
 import { OrdersService } from "../../resources/order/services/orders.service";
 import { Visit } from "../../resources/visits/models/visit.model";
 import { DeleteConfirmationComponent } from "../delete-confirmation/delete-confirmation.component";
+import { SharedConfirmationComponent } from "../shared-confirmation/shared-confirmation.component";
 
 @Component({
   selector: "app-order-results-renderer",
@@ -36,15 +37,16 @@ export class OrderResultsRendererComponent implements OnInit {
   @Input() orderTypes: any[];
   @Input() provider: any;
   @Input() iCareGeneralConfigurations: any;
+  // TODO: Softcode department for common lab tests
   @Input() commonLabTestsConceptReference: string =
     "26172ff2-c058-44a9-8b09-980b24f6e973";
   showCommonLabTests: boolean = false;
   creatingLabOrderState$: Observable<boolean>;
 
   testSetMembersKeyedByConceptUuid: any = {};
-  showParameters: boolean = false;
+  showParameters: any = {};
   currentLabTest: any;
-  showOtherDetails: boolean = false;
+  showOtherDetails: any = {};
   formFields: any[];
   formValuesData: any;
   commonLabTestsFields: any[] = [];
@@ -52,6 +54,8 @@ export class OrderResultsRendererComponent implements OnInit {
 
   isFormValid: boolean = false;
   @Output() updateConsultationOrder = new EventEmitter();
+  @Output() reloadOrderComponent = new EventEmitter();
+  errors: any[] = [];
   constructor(
     private store: Store<AppState>,
     private dialog: MatDialog,
@@ -92,15 +96,19 @@ export class OrderResultsRendererComponent implements OnInit {
     this.voidingLabOrderState$ = this.store.select(getLabOrderVoidingState);
   }
 
-  toggleParametes(event: Event): void {
+  toggleParametes(event: Event, labTest: any): void {
     event.stopPropagation();
-    this.showParameters = !this.showParameters;
+    this.showParameters[labTest?.uuid] = this.showParameters[labTest?.uuid]
+      ? null
+      : labTest;
   }
 
   setCurrentOrderedItemForOtherDetailsView(event: Event, labTest) {
     event.stopPropagation();
     this.currentLabTest = labTest;
-    this.showOtherDetails = !this.showOtherDetails;
+    this.showOtherDetails[labTest?.uuid] = this.showOtherDetails[labTest?.uuid]
+      ? null
+      : labTest;
   }
 
   onFormUpdate(formValues: FormValue): void {
@@ -124,6 +132,7 @@ export class OrderResultsRendererComponent implements OnInit {
                 (orderType) => orderType?.conceptClassName === "Test"
               ) || [])[0]?.uuid,
               action: "NEW",
+              visit: this.visit?.uuid,
               patient: this.visit?.patientUuid,
               careSetting: !this.visit?.isAdmitted ? "OUTPATIENT" : "INPATIENT",
               orderer: this.provider?.uuid,
@@ -150,19 +159,16 @@ export class OrderResultsRendererComponent implements OnInit {
             (orderType) => orderType?.conceptClassName === "Test"
           ) || [])[0]?.uuid,
           action: "NEW",
+          visit: this.visit?.uuid,
           patient: this.visit?.patientUuid,
           careSetting: !this.visit?.isAdmitted ? "OUTPATIENT" : "INPATIENT",
           orderer: this.provider?.uuid,
           urgency: "ROUTINE",
           instructions: this.formValuesData["remarks"]?.value,
-          encounter: JSON.parse(localStorage.getItem("patientConsultation"))[
-            "encounterUuid"
-          ],
           type: "testorder",
         },
       ];
     }
-
     this.store.dispatch(
       createLabOrders({
         orders: labOrders,
@@ -173,12 +179,40 @@ export class OrderResultsRendererComponent implements OnInit {
     this.updateConsultationOrder.emit();
   }
 
-  onDelete(event: Event, labOrder): void {
-    this.store.dispatch(deleteLabOrder({ uuid: labOrder?.uuid }));
+  onDeleteTest(e: Event, labOrder): void {
+    e.stopPropagation();
+    // this.store.dispatch(deleteLabOrder({ uuid: labOrder?.uuid }));
+    const confirmDialog = this.dialog.open(SharedConfirmationComponent, {
+      width: "25%",
+      data: {
+        modalTitle: `Delete ${labOrder?.concept?.display}`,
+        modalMessage: `You are about to delete ${labOrder?.concept?.display} for this patient, Click confirm to delete!`,
+        showRemarksInput: true,
+      },
+      disableClose: false,
+      panelClass: "custom-dialog-container",
+    });
+    confirmDialog.afterClosed().subscribe((confirmationObject) => {
+      if (confirmationObject?.confirmed) {
+        this.ordersService
+          .voidOrderWithReason({
+            ...labOrder,
+            voidReason: confirmationObject?.remarks || "",
+          })
+          .subscribe((response) => {
+            if (!response?.error) {
+              this.reloadOrderComponent.emit();
+            }
+            if (response?.error) {
+              this.errors = [...this.errors, response?.error];
+            }
+          });
+      }
+    });
   }
 
   getLabTests(departments): any {
-    const labDepartment = (departments.filter(
+    const labDepartment = ((departments || [])?.filter(
       (department) => department?.name?.toLowerCase().indexOf("lab") === 0
     ) || [])[0];
     return !labDepartment
@@ -281,7 +315,7 @@ export class OrderResultsRendererComponent implements OnInit {
           encounter: e?.encounter?.uuid,
         };
         this.ordersService.updateOrdersViaEncounter([order]).subscribe();
-        console.log("==> Deleted Lab test: ", e);
+        // console.log("==> Deleted Lab test: ", e);
       }
     });
   }

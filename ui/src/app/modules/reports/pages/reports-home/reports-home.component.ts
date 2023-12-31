@@ -1,16 +1,17 @@
 import { Component, OnInit } from "@angular/core";
 import { Store } from "@ngrx/store";
 import { Observable } from "rxjs";
+import { ReportParamsService } from "src/app/core/services/report-params.service";
+import { ReportService } from "src/app/core/services/report.service";
 import { SystemSettingsService } from "src/app/core/services/system-settings.service";
 import { loadRolesDetails } from "src/app/store/actions";
 import { AppState } from "src/app/store/reducers";
 import {
+  getCurrentUserDetails,
   getCurrentUserPrivileges,
   getRolesLoadedState,
   getRolesLoadingState,
 } from "src/app/store/selectors/current-user.selectors";
-import { ReportParamsService } from "../../services/report-params.service";
-import { ReportService } from "../../services/report.service";
 
 @Component({
   selector: "app-reports-home",
@@ -20,11 +21,16 @@ import { ReportService } from "../../services/report.service";
 export class ReportsHomeComponent implements OnInit {
   reportsAccessConfigurations$: Observable<any>;
   userPrivileges$: Observable<any>;
+
   reportsCategoriesConfigurations$: Observable<any>;
   reportsParametersConfigurations$: Observable<any>;
   reportsExtraParams$: Observable<any>;
   reportGroups$: Observable<any>;
   loadedAllRoles$: Observable<boolean>;
+  standardReports$: Observable<any[]>;
+
+  selectedReport: any;
+  currentUser$: Observable<any>;
   constructor(
     private store: Store<AppState>,
     private systemSettingsService: SystemSettingsService,
@@ -53,5 +59,16 @@ export class ReportsHomeComponent implements OnInit {
     this.reportsExtraParams$ = this.reportParamsService.getReportExtraParams();
     this.reportGroups$ = this.reportParamsService.getReportGroups();
     this.loadedAllRoles$ = this.store.select(getRolesLoadedState);
+
+    this.currentUser$ = this.store.select(getCurrentUserDetails);
   }
+
+  // onGetSelectedReport(report: any): void {
+  //   this.selectedReport = report;
+  // }
+
+  // getBackToReportsList(event: Event): void {
+  //   event.stopPropagation();
+  //   this.selectedReport = null;
+  // }
 }

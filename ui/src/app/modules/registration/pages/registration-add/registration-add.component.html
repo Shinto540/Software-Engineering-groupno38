@@ -111,6 +111,7 @@
                 <mat-label>{{ selectedIdentifierType?.name }}</mat-label>
                 <input
                   matInput
+                  id="patientTypeID"
                   [pattern]="selectedIdentifierType?.format"
                   [placeholder]="selectedIdFormat"
                   [required]="selectedIdentifierType?.required"
@@ -217,8 +218,8 @@
             >
               <div class="w-100 d-flex">
                 <p class="alert alert-danger mt-1 w-75">
-                  There is patient with the same name. Would you like to
-                  Continue?
+                  Patient with the same name exits. Click the patient to Start
+                  Visit &nbsp;&nbsp; OR
                 </p>
                 <button
                   class="ml-3 mt-1 w-25"
@@ -227,7 +228,7 @@
                   color="primary"
                   (click)="onContinueRegistrion()"
                 >
-                  Continue
+                  Register New
                 </button>
               </div>
               <table
@@ -329,7 +330,7 @@
                   [(ngModel)]="patient['age']['years']"
                   (keyup)="calculateDateOfBirth()"
                   name="age"
-                  id="age"
+                  id="ageYears"
                 />
               </mat-form-field>
               <mat-form-field appearance="fill" class="w-25 ml-1">
@@ -340,7 +341,7 @@
                   [(ngModel)]="patient['age']['months']"
                   (keyup)="calculateDateOfBirth()"
                   name="age"
-                  id="age"
+                  id="ageMonths"
                 />
               </mat-form-field>
               <mat-form-field appearance="fill" class="w-25 ml-1">
@@ -351,7 +352,7 @@
                   [(ngModel)]="patient['age']['days']"
                   (keyup)="calculateDateOfBirth()"
                   name="age"
-                  id="age"
+                  id="ageDays"
                 />
               </mat-form-field>
               <div class="ml-4 mr-4 h6">OR</div>
@@ -803,9 +804,11 @@
                 <mat-label>First Name</mat-label>
                 <input
                   matInput
+                  id="kfname"
                   placeholder="Enter Text"
                   [(ngModel)]="patient['kinFname']"
                   name="kinFname"
+                  (keyup)="validateNamesInputs(patient['lname'], 'lname')"
                   [disabled]="addingPatient && !patientAdded"
                 />
               </mat-form-field>
@@ -836,13 +839,14 @@
                 <mat-label>Last Name</mat-label>
                 <input
                   matInput
+                  id="klname"
                   placeholder="Enter Text"
                   [(ngModel)]="patient['kinLName']"
                   name="kinLName"
+                  (keyup)="validateNamesInputs(patient['lname'], 'lname')"
                   [disabled]="addingPatient && !patientAdded"
                 />
               </mat-form-field>
-              {{ patient.kinLName }}
               <!-- <mat-form-field appearance="fill" class="w-100 ml-2">
                 <mat-label>Relationship with patient</mat-label>
                 <input
@@ -926,7 +930,7 @@
             [diameter]="20"
             style="display: inline-block !important; margin-right: 4px"
           ></mat-spinner>
-          {{ editMode ? "Edit Patient" : "Save Registration" }}
+          {{ editMode ? "Save Changes" : "Save Registration" }}
         </button>
         <button
           style="height: 45px"
